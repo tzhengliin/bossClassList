@@ -9,8 +9,7 @@
     <style>
       .dropdown-menu-scroll { max-height: 320px; overflow-y: auto; }
       .cursor-pointer { cursor: pointer; }
-      .shadow-soft { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08); }
-      /* QR 容器固定尺寸，置中顯示 */
+      .shadow-soft { box-shadow: 0 0.5rem 1rem rgba(0,0,0,.08); }
       #qrContainer {
         width: 240px; height: 240px;
         display: flex; align-items: center; justify-content: center;
@@ -74,9 +73,7 @@
             <span class="badge text-bg-success ms-1" id="countPaid">已繳 0</span>
           </div>
         </div>
-        <div>
-          <button id="refreshBtn" class="btn btn-outline-secondary btn-sm" disabled>重新整理</button>
-        </div>
+        <div><button id="refreshBtn" class="btn btn-outline-secondary btn-sm" disabled>重新整理</button></div>
       </div>
 
       <!-- 資料表 -->
@@ -113,13 +110,32 @@
         </div>
       </div>
 
-      <!-- 報名連結 QRCode -->
+      <!-- 報名連結（完整網址 / 短網址）＋ QRCode -->
       <div class="card shadow-soft">
         <div class="card-body">
+          <!-- 完整網址 -->
+          <div class="mb-2">
+            <label class="form-label small text-secondary">完整網址（LINE 開啟訊息）</label>
+            <div class="input-group">
+              <input id="fullUrlInput" type="text" class="form-control" readonly placeholder="選擇課程後自動產生">
+              <button id="copyFullUrlBtn" class="btn btn-outline-primary" type="button" disabled>複製</button>
+            </div>
+          </div>
+          <!-- 短網址 -->
+          <div class="mb-3">
+            <label class="form-label small text-secondary">短網址</label>
+            <div class="input-group">
+              <input id="shortUrlInput" type="text" class="form-control" readonly placeholder="選擇課程後自動產生（is.gd / v.gd）">
+              <button id="copyShortUrlBtn" class="btn btn-outline-primary" type="button" disabled>複製</button>
+            </div>
+            <div id="shortUrlHint" class="form-text">若無法產生，請稍後再試或改用完整網址。</div>
+          </div>
+
+          <!-- QR 與操作 -->
           <div class="d-flex align-items-start gap-3 flex-wrap">
             <div>
               <div id="qrContainer"><span class="text-secondary small">請先選擇課程</span></div>
-              <div class="small text-secondary mt-2" id="qrCaption">將產生：LINE 傳送「報名 {課程名稱}」</div>
+              <div class="small text-secondary mt-2" id="qrCaption">將產生：LINE 傳送「報名 {日期} {課程名稱}」</div>
             </div>
             <div class="d-flex flex-column gap-2">
               <button id="copyQrBtn" class="btn btn-outline-primary btn-sm" disabled>複製圖片</button>
@@ -130,7 +146,7 @@
       </div>
     </main>
 
-    <!-- Toast: 訊息提示 -->
+    <!-- Toast -->
     <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080">
       <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="toast-header">
@@ -142,15 +158,15 @@
       </div>
     </div>
 
-    <!-- QRCode 函式庫（需先於主程式前載入，因為初始化會用到） -->
+    <!-- QRCode 函式庫 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <script>
       // === 可調整參數 ===
       const SPREADSHEET_ID = "1dHKNksMN3jiB7EVCtgJLdCY3ggy2jokCMfNLCXmGNf4";
-      const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc";
+      const API_KEY = "YOUR_API_KEY_HERE";
 
-      // === DOM 元素 ===
+      // === DOM ===
       const allCoursesMenu = document.getElementById("allCoursesMenu");
       const searchInput = document.getElementById("searchInput");
       const searchBtn = document.getElementById("searchBtn");
@@ -167,35 +183,37 @@
       const countPaidEl = document.getElementById("countPaid");
       const shareTextEl = document.getElementById("shareText");
       const copyBtn = document.getElementById("copyBtn");
+
+      const fullUrlInput = document.getElementById("fullUrlInput");
+      const copyFullUrlBtn = document.getElementById("copyFullUrlBtn");
+      const shortUrlInput = document.getElementById("shortUrlInput");
+      const copyShortUrlBtn = document.getElementById("copyShortUrlBtn");
+
       const copyQrBtn = document.getElementById("copyQrBtn");
       const downloadQrBtn = document.getElementById("downloadQrBtn");
 
       // === 狀態 ===
-      let courses = []; // { title, dateStr: 'YYYYMMDD', date: Date, sheetId }
+      let courses = []; // { title, dateStr, date, sheetId }
       let futureCourses = [];
       let selectedCourse = null;
 
-      // ===== 小工具 =====
+      // ===== 工具 =====
       function showToast(msg) {
         document.getElementById("toastBody").textContent = msg;
-        const toastEl = document.getElementById("toast");
-        const toast = new bootstrap.Toast(toastEl);
-        toast.show();
+        new bootstrap.Toast(document.getElementById("toast")).show();
       }
-      function yyyymmddToDate(str) {
-        const y = +str.slice(0, 4), m = +str.slice(4, 6) - 1, d = +str.slice(6, 8);
-        return new Date(y, m, d);
-      }
+      function yyyymmddToDate(str) { return new Date(+str.slice(0,4), +str.slice(4,6)-1, +str.slice(6,8)); }
       function formatDate(date) {
-        const y = date.getFullYear();
-        const m = String(date.getMonth() + 1).padStart(2, "0");
-        const d = String(date.getDate()).padStart(2, "0");
+        const y = date.getFullYear(), m = String(date.getMonth()+1).padStart(2,'0'), d = String(date.getDate()).padStart(2,'0');
         return `${y}/${m}/${d}`;
       }
       function isCourseSheet(title) { return /^\d{8}/.test(title); }
-      function extractDateStr(title) { return title.slice(0, 8); }
-      function escapeHtml(str) {
-        return String(str).replace(/[&<>"]/g, (s) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[s]));
+      function extractDateStr(title) { return title.slice(0,8); }
+      function escapeHtml(str) { return String(str).replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s])); }
+      function getCourseDisplayName(course) {
+        const raw = course?.title || "";
+        const noDate = raw.replace(/^\d{8}/, "").trim();
+        return noDate || raw;
       }
       function explainFetchError(status, text) {
         if (status === 403) {
@@ -203,49 +221,44 @@
             return "權限不足：請把試算表共用設定為「知道連結的任何人 → 檢視者」。";
           }
           if (/Referer.*not.*allowed|API keys with referer restrictions cannot be used/i.test(text)) {
-            return "API Key 來源限制：請在 API Key 限制中加入目前網域（GitHub Pages 或 http://localhost/*）。";
+            return "API Key 來源限制：請在 API Key 限制加入目前網域（GitHub Pages / http://localhost/*）。";
           }
         }
         if (status === 400 && /API key not valid/i.test(text)) return "API Key 無效或未啟用 Sheets API。";
-        return `讀取失敗（${status}）：${text.slice(0, 180)}...`;
+        return `讀取失敗（${status}）：${text.slice(0,180)}...`;
       }
       function isPaidValue(val) {
-        const s = String(val || "").replace(/\s+/g, "").toLowerCase();
+        const s = String(val||"").replace(/\s+/g,"").toLowerCase();
         if (!s) return false;
-        if (["y", "yes", "true", "1", "paid"].includes(s)) return true;
-        if (s.includes("已繳") || s.includes("已付款") || s.includes("已付") || s.includes("繳清") || s.includes("付款完成") || s === "是" || s === "有") return true;
+        if (["y","yes","true","1","paid"].includes(s)) return true;
+        if (s.includes("已繳")||s.includes("已付款")||s.includes("已付")||s.includes("繳清")||s.includes("付款完成")||s==="是"||s==="有") return true;
         return false;
       }
       function paymentIcon(val) {
-        const s = String(val || "").trim().toLowerCase().replace(/\s+/g, "");
-        if (s.includes("長客") || s.includes("長客券")) return "🔖";
-        if (s.includes("linepay") || s.includes("line-pay") || s.includes("line支付") || s.includes("Ⓛ")) return "Ⓛ";
-        if (s.includes("現金") || s.includes("已繳") || s.includes("已付") || s.includes("已付款") || s.includes("繳清") || s.includes("付清") || s.includes("付款完成") || ["paid","cash","y","yes","1","true"].includes(s)) return "💰";
+        const s = String(val||"").trim().toLowerCase().replace(/\s+/g,"");
+        if (s.includes("長客")||s.includes("長客券")) return "🔖";
+        if (s.includes("linepay")||s.includes("line-pay")||s.includes("line支付")||s.includes("Ⓛ")) return "Ⓛ";
+        if (s.includes("現金")||s.includes("已繳")||s.includes("已付")||s.includes("已付款")||s.includes("繳清")||s.includes("付清")||s.includes("付款完成")||["paid","cash","y","yes","1","true"].includes(s)) return "💰";
         return "";
       }
       function checkinIcon(val) {
-        const s = String(val || "").trim().toLowerCase();
-        if (s.includes("已報到") || s.includes("已簽到") || ["是","y","yes","1","true","v","✓","√"].includes(s)) return "✅";
+        const s = String(val||"").trim().toLowerCase();
+        if (s.includes("已報到")||s.includes("已簽到")||["是","y","yes","1","true","v","✓","√"].includes(s)) return "✅";
         return "";
-      }
-      function getCourseDisplayName(course) {
-        const raw = course?.title || "";
-        const noDate = raw.replace(/^\d{8}/, "").trim();
-        return noDate || raw;
       }
 
       // ===== API =====
       async function fetchSheetsList() {
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets(properties(sheetId%2Ctitle))&key=${API_KEY}`;
         const res = await fetch(url);
-        if (!res.ok) { const text = await res.text(); throw new Error(explainFetchError(res.status, text)); }
+        if (!res.ok) throw new Error(explainFetchError(res.status, await res.text()));
         return res.json();
       }
       async function fetchSheetValuesByTitle(title) {
         const range = `${encodeURIComponent(title)}!A1:Z2000`;
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}?majorDimension=ROWS&key=${API_KEY}`;
         const res = await fetch(url);
-        if (!res.ok) { const text = await res.text(); throw new Error(explainFetchError(res.status, text)); }
+        if (!res.ok) throw new Error(explainFetchError(res.status, await res.text()));
         return res.json();
       }
 
@@ -253,7 +266,7 @@
       function renderAllCoursesDropdown(list) {
         allCoursesMenu.innerHTML = "";
         if (!list.length) { allCoursesMenu.innerHTML = '<li class="px-3 py-2 text-secondary">沒有即將到來的課程</li>'; return; }
-        list.forEach((c) => {
+        list.forEach(c => {
           const li = document.createElement("li");
           const a = document.createElement("a");
           a.className = "dropdown-item d-flex justify-content-between align-items-center";
@@ -262,35 +275,38 @@
           badge.className = "badge text-bg-light ms-2";
           badge.textContent = formatDate(c.date);
           a.appendChild(badge);
-          a.addEventListener("click", (e) => { e.preventDefault(); selectCourse(c); });
+          a.addEventListener("click", e => { e.preventDefault(); selectCourse(c); });
           li.appendChild(a); allCoursesMenu.appendChild(li);
         });
       }
       function renderUpcomingFour(list) {
         upcomingFour.innerHTML = "";
-        const slice = list.slice(0, 4);
+        const slice = list.slice(0,4);
         if (!slice.length) { upcomingFour.innerHTML = '<div class="col-12"><div class="text-secondary small">沒有即將到來的課程</div></div>'; return; }
-        slice.forEach((c) => {
+        slice.forEach(c => {
           const col = document.createElement("div"); col.className = "col-12 col-sm-6 col-lg-3";
           const btn = document.createElement("button"); btn.className = "btn btn-outline-primary w-100 text-start";
           btn.innerHTML = `<div class="fw-semibold">${c.title}</div><div class="small text-secondary">${formatDate(c.date)}</div>`;
-          btn.addEventListener("click", () => selectCourse(c)); col.appendChild(btn); upcomingFour.appendChild(col);
+          btn.addEventListener("click", () => selectCourse(c));
+          col.appendChild(btn); upcomingFour.appendChild(col);
         });
       }
       function renderSearchResults(list) {
         if (!list || !list.length) { clearSearchResults(); return; }
-        searchResultsWrap.classList.remove("d-none"); searchResults.innerHTML = "";
-        list.forEach((c) => {
+        searchResultsWrap.classList.remove("d-none");
+        searchResults.innerHTML = "";
+        list.forEach(c => {
           const col = document.createElement("div"); col.className = "col-12 col-sm-6 col-lg-3";
           const btn = document.createElement("button"); btn.className = "btn btn-outline-secondary w-100 text-start";
           btn.innerHTML = `<div class="fw-semibold">${c.title}</div><div class="small text-secondary">${formatDate(c.date)}</div>`;
-          btn.addEventListener("click", () => selectCourse(c)); col.appendChild(btn); searchResults.appendChild(col);
+          btn.addEventListener("click", () => selectCourse(c));
+          col.appendChild(btn); searchResults.appendChild(col);
         });
       }
       function clearSearchResults() { searchResults.innerHTML = ""; searchResultsWrap.classList.add("d-none"); }
       function renderRoster(rows) {
         rosterTableBody.innerHTML = "";
-        if (!rows.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="6" class="text-secondary">尚無資料</td>'; rosterTableBody.appendChild(tr); return; }
+        if (!rows.length) { rosterTableBody.innerHTML = '<tr><td colspan="6" class="text-secondary">尚無資料</td></tr>'; return; }
         rows.forEach((r, i) => {
           const tr = document.createElement("tr");
           tr.innerHTML = `
@@ -335,14 +351,21 @@
       }
       function fillShareText(course, rows) { shareTextEl.value = buildShareText(course, rows); }
 
-      // ===== QRCode 相關 =====
+      // ===== QR 與 URL =====
+      function buildLineUrl(course) {
+        if (!course) return "";
+        const dateStr = formatDate(course.date);
+        const cName = getCourseDisplayName(course);
+        // 報名 {日期} {課程名稱}
+        const msg = `報名 ${dateStr} ${cName}`;
+        return `https://line.me/R/oaMessage/%40667xkonq/?${encodeURIComponent(msg)}`;
+      }
       function getQrCanvas() {
         const box = document.getElementById('qrContainer');
         let canvas = box.querySelector('canvas');
         if (canvas) return canvas;
         const img = box.querySelector('img');
         if (!img) return null;
-        // 將 <img> 轉成 canvas 以便複製/下載
         const cv = document.createElement('canvas');
         const w = img.naturalWidth || 240, h = img.naturalHeight || 240;
         cv.width = w; cv.height = h;
@@ -351,22 +374,63 @@
         ctx.drawImage(img, 0, 0, w, h);
         return cv;
       }
-      function updateQRCode(course) {
+      function updateQRCodeWithUrl(url, captionText) {
         const box = document.getElementById('qrContainer');
         const caption = document.getElementById('qrCaption');
-        if (!course) {
+        if (!url) {
           box.innerHTML = '<span class="text-secondary small">請先選擇課程</span>';
-          caption.textContent = '將產生：LINE 傳送「報名 {課程名稱}」';
+          caption.textContent = '將產生：LINE 傳送「報名 {日期} {課程名稱}」';
           copyQrBtn.disabled = true; downloadQrBtn.disabled = true;
           return;
         }
-        const cName = getCourseDisplayName(course);
-        const url = `https://line.me/R/oaMessage/%40667xkonq/?${encodeURIComponent('報名 ' + cName)}`;
         box.innerHTML = '';
         new QRCode(box, { text: url, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
-        caption.textContent = `掃描後會開啟 LINE 並帶入「報名 ${cName}」訊息`;
-        copyQrBtn.disabled = false;
-        downloadQrBtn.disabled = false;
+        caption.textContent = captionText || '掃描後會開啟 LINE 並帶入訊息';
+        copyQrBtn.disabled = false; downloadQrBtn.disabled = false;
+      }
+      async function shortenUrl(longUrl) {
+        // 先試 is.gd（simple 文字），失敗再試 v.gd
+        try {
+          const r = await fetch(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`);
+          if (r.ok) {
+            const t = (await r.text()).trim();
+            if (t && /^https?:\/\//i.test(t)) return t;
+          }
+          throw new Error('is.gd 失敗');
+        } catch (_) {
+          try {
+            const r2 = await fetch(`https://v.gd/create.php?format=simple&url=${encodeURIComponent(longUrl)}`);
+            if (r2.ok) {
+              const t2 = (await r2.text()).trim();
+              if (t2 && /^https?:\/\//i.test(t2)) return t2;
+            }
+            throw new Error('v.gd 失敗');
+          } catch (e) {
+            console.warn('短網址服務失敗：', e);
+            return '';
+          }
+        }
+      }
+      async function updateUrlBoxes(course) {
+        const full = buildLineUrl(course);
+        fullUrlInput.value = full || '';
+        copyFullUrlBtn.disabled = !full;
+
+        shortUrlInput.value = '產生中…';
+        copyShortUrlBtn.disabled = true;
+
+        if (!full) {
+          shortUrlInput.value = '';
+          return;
+        }
+        const shorted = await shortenUrl(full);
+        if (shorted) {
+          shortUrlInput.value = shorted;
+          copyShortUrlBtn.disabled = false;
+        } else {
+          shortUrlInput.value = '（無法產生）';
+          copyShortUrlBtn.disabled = true;
+        }
       }
 
       // ===== 主流程 =====
@@ -379,19 +443,25 @@
           const values = await fetchSheetValuesByTitle(course.title);
           const rows = mapRowsToNeededColumns(values);
           renderRoster(rows);
+
           const total = rows.length;
-          const paid = rows.filter((r) => isPaidValue(r["繳費狀態"])).length;
+          const paid = rows.filter(r => isPaidValue(r["繳費狀態"])).length;
           updateCounters(total, paid);
           statusText.textContent = `共 ${total} 筆（已繳 ${paid}）`;
           location.hash = encodeURIComponent(course.title);
+
           fillShareText(course, rows);
-          updateQRCode(course); // ← 產生 / 更新 QRCode
+
+          const full = buildLineUrl(course);
+          await updateUrlBoxes(course);
+          updateQRCodeWithUrl(full, `掃描後會開啟 LINE 並帶入「報名 ${formatDate(course.date)} ${getCourseDisplayName(course)}」`);
         } catch (err) {
           console.error(err);
           statusText.textContent = "讀取失敗";
           renderRoster([]);
           fillShareText(null, []);
-          updateQRCode(null);
+          updateUrlBoxes(null);
+          updateQRCodeWithUrl(null);
           showToast(err.message);
         } finally {
           refreshBtn.disabled = false;
@@ -401,29 +471,29 @@
       function mapRowsToNeededColumns(values) {
         if (!values || !values.values || !values.values.length) return [];
         const [header, ...data] = values.values;
-        const norm = (s) => (s || "").toString().replace(/[\s\u3000]/g, "").toLowerCase();
-        const idx = {}; header.forEach((h, i) => (idx[norm(h)] = i));
-        const need = ["姓名", "邀請人", "繳費狀態", "簽到", "註記"];
-        const miss = need.filter((n) => !(norm(n) in idx));
+        const norm = s => (s || "").toString().replace(/[\s\u3000]/g,"").toLowerCase();
+        const idx = {}; header.forEach((h,i)=>idx[norm(h)] = i);
+        const need = ["姓名","邀請人","繳費狀態","簽到","註記"];
+        const miss = need.filter(n=>!(norm(n) in idx));
         if (miss.length) {
-          const alias = { 繳費狀態: ["繳費", "付款狀態", "是否繳費"], 簽到: ["是否簽到", "出席"], 邀請人: ["推薦人", "介紹人"] };
-          miss.forEach((n) => { (alias[n] || []).some((t) => norm(t) in idx && ((idx[norm(n)] = idx[norm(t)]), true)); });
+          const alias = { 繳費狀態:["繳費","付款狀態","是否繳費"], 簽到:["是否簽到","出席"], 邀請人:["推薦人","介紹人"] };
+          miss.forEach(n => { (alias[n]||[]).some(t => (norm(t) in idx) && (idx[norm(n)] = idx[norm(t)], true)); });
         }
-        const rows = data.map((row) => ({
+        const rows = data.map(row => ({
           姓名: row[idx[norm("姓名")]] || "",
           邀請人: row[idx[norm("邀請人")]] || "",
           繳費狀態: row[idx[norm("繳費狀態")]] || "",
           簽到: row[idx[norm("簽到")]] || "",
-          註記: row[idx[norm("註記")]] || "",
+          註記: row[idx[norm("註記")]] || ""
         }));
-        return rows.filter((r) => Object.values(r).some((v) => String(v).trim() !== ""));
+        return rows.filter(r => Object.values(r).some(v => String(v).trim() !== ""));
       }
 
       function applySearch() {
         const q = searchInput.value.trim();
         if (!q) { showToast("請輸入關鍵字"); return; }
         const isDateLike = /^\d{8}$/.test(q);
-        const matched = courses.filter((c) => (isDateLike ? c.dateStr.includes(q) : c.title.toLowerCase().includes(q.toLowerCase())));
+        const matched = courses.filter(c => isDateLike ? c.dateStr.includes(q) : c.title.toLowerCase().includes(q.toLowerCase()));
         if (!matched.length) { showToast("找不到符合的課程"); clearSearchResults(); return; }
         renderSearchResults(matched);
         statusText.textContent = `找到 ${matched.length} 堂課程`;
@@ -441,33 +511,29 @@
         statusText.textContent = "載入課程中…";
         try {
           const data = await fetchSheetsList();
-          const sheets = (data.sheets || []).map((s) => s.properties);
+          const sheets = (data.sheets || []).map(s => s.properties);
           courses = sheets
-            .filter((s) => isCourseSheet(s.title))
-            .map((s) => {
-              const dateStr = extractDateStr(s.title);
-              return { title: s.title, dateStr, date: yyyymmddToDate(dateStr), sheetId: s.sheetId };
-            })
-            .sort((a, b) => a.date - b.date);
+            .filter(s => isCourseSheet(s.title))
+            .map(s => ({ title: s.title, dateStr: extractDateStr(s.title), date: yyyymmddToDate(extractDateStr(s.title)), sheetId: s.sheetId }))
+            .sort((a,b) => a.date - b.date);
 
           const today = new Date();
-          futureCourses = courses.filter((c) => c.date >= new Date(today.getFullYear(), today.getMonth(), today.getDate()));
+          futureCourses = courses.filter(c => c.date >= new Date(today.getFullYear(), today.getMonth(), today.getDate()));
 
           renderAllCoursesDropdown(futureCourses);
           renderUpcomingFour(futureCourses);
           statusText.textContent = `共 ${courses.length} 個課程分頁（未來：${futureCourses.length}）`;
 
-          // 預設載入：URL hash > 最近未來課 > 若無未來課則載入最近的一堂（過去）
           if (location.hash) {
             const t = decodeURIComponent(location.hash.slice(1));
-            const hit = courses.find((c) => c.title === t);
+            const hit = courses.find(c => c.title === t);
             if (hit) selectCourse(hit);
             else if (futureCourses.length) selectCourse(futureCourses[0]);
-            else if (courses.length) selectCourse(courses[courses.length - 1]);
+            else if (courses.length) selectCourse(courses[courses.length-1]);
           } else if (futureCourses.length) {
             selectCourse(futureCourses[0]);
           } else if (courses.length) {
-            selectCourse(courses[courses.length - 1]);
+            selectCourse(courses[courses.length-1]);
           }
         } catch (err) {
           console.error(err);
@@ -478,21 +544,27 @@
 
       // 事件
       searchBtn.addEventListener("click", applySearch);
-      searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") applySearch(); });
+      searchInput.addEventListener("keydown", e => { if (e.key === "Enter") applySearch(); });
       refreshBtn.addEventListener("click", () => { if (selectedCourse) selectCourse(selectedCourse); });
       clearSearchBtn.addEventListener("click", clearSearchResults);
+
       copyBtn.addEventListener("click", async () => {
         try {
-          if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(shareTextEl.value);
-          } else {
-            shareTextEl.select(); document.execCommand("copy"); shareTextEl.blur();
-          }
+          if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(shareTextEl.value);
+          else { shareTextEl.select(); document.execCommand("copy"); shareTextEl.blur(); }
           showToast("已複製到剪貼簿");
-        } catch (e) {
-          console.error(e); showToast("複製失敗，請手動全選複製");
-        }
+        } catch { showToast("複製失敗，請手動全選複製"); }
       });
+
+      copyFullUrlBtn.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(fullUrlInput.value); showToast("完整網址已複製"); }
+        catch { showToast("無法複製完整網址"); }
+      });
+      copyShortUrlBtn.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(shortUrlInput.value); showToast("短網址已複製"); }
+        catch { showToast("無法複製短網址"); }
+      });
+
       copyQrBtn.addEventListener("click", async () => {
         try {
           const canvas = getQrCanvas();
@@ -501,8 +573,8 @@
           if (!blob || !navigator.clipboard || !window.ClipboardItem) throw new Error('Clipboard API 不支援');
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
           showToast('QR 圖片已複製');
-        } catch (e) {
-          console.error(e); showToast('無法複製圖片（瀏覽器或環境不支援）');
+        } catch {
+          showToast('無法複製圖片（瀏覽器或環境不支援）');
         }
       });
       downloadQrBtn.addEventListener("click", () => {
