@@ -7,15 +7,14 @@
     <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
     <style>
-      .dropdown-menu-scroll {
-        max-height: 320px;
-        overflow-y: auto;
-      }
-      .cursor-pointer {
-        cursor: pointer;
-      }
-      .shadow-soft {
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08);
+      .dropdown-menu-scroll { max-height: 320px; overflow-y: auto; }
+      .cursor-pointer { cursor: pointer; }
+      .shadow-soft { box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08); }
+      /* QR 容器固定尺寸，置中顯示 */
+      #qrContainer {
+        width: 240px; height: 240px;
+        display: flex; align-items: center; justify-content: center;
+        background: #fff; border: 1px solid rgba(0,0,0,.1); border-radius: .5rem;
       }
     </style>
   </head>
@@ -23,7 +22,9 @@
     <nav class="navbar navbar-expand-lg bg-white border-bottom shadow-sm">
       <div class="container">
         <a class="navbar-brand fw-semibold" href="#">高雄博士班｜課程報名名單</a>
-        <button class="btn btn-primary btn-sm"><a href="https://tzhengliin.synology.me/bossclass/verify" class="text-decoration-none text-white">簽到認證</a></button>
+        <button class="btn btn-primary btn-sm">
+          <a href="https://tzhengliin.synology.me/bossclass/verify" class="text-decoration-none text-white">簽到認證</a>
+        </button>
       </div>
     </nav>
 
@@ -94,9 +95,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colspan="6" class="text-secondary">尚未選取課程</td>
-                </tr>
+                <tr><td colspan="6" class="text-secondary">尚未選取課程</td></tr>
               </tbody>
             </table>
           </div>
@@ -104,13 +103,29 @@
       </div>
 
       <!-- 快速複製文字 -->
-      <div class="card shadow-soft">
+      <div class="card shadow-soft mb-3">
         <div class="card-body">
           <div class="d-flex align-items-center justify-content-between mb-2">
             <h6 class="m-0 text-secondary">快速複製文字</h6>
             <button id="copyBtn" class="btn btn-outline-primary btn-sm">複製</button>
           </div>
           <textarea id="shareText" class="form-control" rows="12" readonly placeholder="選取課程後，這裡會自動產生可複製的文字內容"></textarea>
+        </div>
+      </div>
+
+      <!-- 報名連結 QRCode -->
+      <div class="card shadow-soft">
+        <div class="card-body">
+          <div class="d-flex align-items-start gap-3 flex-wrap">
+            <div>
+              <div id="qrContainer"><span class="text-secondary small">請先選擇課程</span></div>
+              <div class="small text-secondary mt-2" id="qrCaption">將產生：LINE 傳送「報名 {課程名稱}」</div>
+            </div>
+            <div class="d-flex flex-column gap-2">
+              <button id="copyQrBtn" class="btn btn-outline-primary btn-sm" disabled>複製圖片</button>
+              <button id="downloadQrBtn" class="btn btn-outline-secondary btn-sm" disabled>下載圖片</button>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -127,10 +142,13 @@
       </div>
     </div>
 
+    <!-- QRCode 函式庫（需先於主程式前載入，因為初始化會用到） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
     <script>
       // === 可調整參數 ===
       const SPREADSHEET_ID = "1dHKNksMN3jiB7EVCtgJLdCY3ggy2jokCMfNLCXmGNf4";
-      const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc"; // ← 替換為你的 Google API Key
+      const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc";
 
       // === DOM 元素 ===
       const allCoursesMenu = document.getElementById("allCoursesMenu");
@@ -149,6 +167,8 @@
       const countPaidEl = document.getElementById("countPaid");
       const shareTextEl = document.getElementById("shareText");
       const copyBtn = document.getElementById("copyBtn");
+      const copyQrBtn = document.getElementById("copyQrBtn");
+      const downloadQrBtn = document.getElementById("downloadQrBtn");
 
       // === 狀態 ===
       let courses = []; // { title, dateStr: 'YYYYMMDD', date: Date, sheetId }
@@ -163,9 +183,7 @@
         toast.show();
       }
       function yyyymmddToDate(str) {
-        const y = +str.slice(0, 4),
-          m = +str.slice(4, 6) - 1,
-          d = +str.slice(6, 8);
+        const y = +str.slice(0, 4), m = +str.slice(4, 6) - 1, d = +str.slice(6, 8);
         return new Date(y, m, d);
       }
       function formatDate(date) {
@@ -174,12 +192,8 @@
         const d = String(date.getDate()).padStart(2, "0");
         return `${y}/${m}/${d}`;
       }
-      function isCourseSheet(title) {
-        return /^\d{8}/.test(title);
-      }
-      function extractDateStr(title) {
-        return title.slice(0, 8);
-      }
+      function isCourseSheet(title) { return /^\d{8}/.test(title); }
+      function extractDateStr(title) { return title.slice(0, 8); }
       function escapeHtml(str) {
         return String(str).replace(/[&<>"]/g, (s) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[s]));
       }
@@ -196,156 +210,97 @@
         return `讀取失敗（${status}）：${text.slice(0, 180)}...`;
       }
       function isPaidValue(val) {
-        const s = String(val || "")
-          .replace(/\s+/g, "")
-          .toLowerCase();
+        const s = String(val || "").replace(/\s+/g, "").toLowerCase();
         if (!s) return false;
         if (["y", "yes", "true", "1", "paid"].includes(s)) return true;
         if (s.includes("已繳") || s.includes("已付款") || s.includes("已付") || s.includes("繳清") || s.includes("付款完成") || s === "是" || s === "有") return true;
         return false;
       }
-
       function paymentIcon(val) {
-        const s = String(val || "")
-          .trim()
-          .toLowerCase()
-          .replace(/\s+/g, "");
-        // 優先順序：長客券 > Linepay > 現金/已繳
+        const s = String(val || "").trim().toLowerCase().replace(/\s+/g, "");
         if (s.includes("長客") || s.includes("長客券")) return "🔖";
         if (s.includes("linepay") || s.includes("line-pay") || s.includes("line支付") || s.includes("Ⓛ")) return "Ⓛ";
-        if (
-          s.includes("現金") ||
-          s.includes("已繳") ||
-          s.includes("已付") ||
-          s.includes("已付款") ||
-          s.includes("繳清") ||
-          s.includes("付清") ||
-          s.includes("付款完成") ||
-          s === "paid" ||
-          s === "cash" ||
-          s === "y" ||
-          s === "yes" ||
-          s === "1" ||
-          s === "true"
-        )
-          return "💰";
-        return ""; // 沒命中就不顯示圖示
+        if (s.includes("現金") || s.includes("已繳") || s.includes("已付") || s.includes("已付款") || s.includes("繳清") || s.includes("付清") || s.includes("付款完成") || ["paid","cash","y","yes","1","true"].includes(s)) return "💰";
+        return "";
+      }
+      function checkinIcon(val) {
+        const s = String(val || "").trim().toLowerCase();
+        if (s.includes("已報到") || s.includes("已簽到") || ["是","y","yes","1","true","v","✓","√"].includes(s)) return "✅";
+        return "";
+      }
+      function getCourseDisplayName(course) {
+        const raw = course?.title || "";
+        const noDate = raw.replace(/^\d{8}/, "").trim();
+        return noDate || raw;
       }
 
-      function checkinIcon(val) {
-        const s = String(val || "")
-          .trim()
-          .toLowerCase();
-        // 常見「已報到」/「已簽到」/勾選表達
-        if (s.includes("已報到") || s.includes("已簽到") || s === "是" || s === "y" || s === "yes" || s === "1" || s === "true" || s === "v" || s === "✓" || s === "√") {
-          return "✅";
-        }
-        return ""; // 未報到不顯示
-      }
       // ===== API =====
       async function fetchSheetsList() {
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets(properties(sheetId%2Ctitle))&key=${API_KEY}`;
         const res = await fetch(url);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(explainFetchError(res.status, text));
-        }
+        if (!res.ok) { const text = await res.text(); throw new Error(explainFetchError(res.status, text)); }
         return res.json();
       }
       async function fetchSheetValuesByTitle(title) {
         const range = `${encodeURIComponent(title)}!A1:Z2000`;
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}?majorDimension=ROWS&key=${API_KEY}`;
         const res = await fetch(url);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(explainFetchError(res.status, text));
-        }
+        if (!res.ok) { const text = await res.text(); throw new Error(explainFetchError(res.status, text)); }
         return res.json();
       }
 
       // ===== Renderers =====
       function renderAllCoursesDropdown(list) {
         allCoursesMenu.innerHTML = "";
-        if (!list.length) {
-          allCoursesMenu.innerHTML = '<li class="px-3 py-2 text-secondary">沒有即將到來的課程</li>';
-          return;
-        }
+        if (!list.length) { allCoursesMenu.innerHTML = '<li class="px-3 py-2 text-secondary">沒有即將到來的課程</li>'; return; }
         list.forEach((c) => {
           const li = document.createElement("li");
           const a = document.createElement("a");
           a.className = "dropdown-item d-flex justify-content-between align-items-center";
-          a.href = "#";
-          a.textContent = c.title;
+          a.href = "#"; a.textContent = c.title;
           const badge = document.createElement("span");
           badge.className = "badge text-bg-light ms-2";
           badge.textContent = formatDate(c.date);
           a.appendChild(badge);
-          a.addEventListener("click", (e) => {
-            e.preventDefault();
-            selectCourse(c);
-          });
-          li.appendChild(a);
-          allCoursesMenu.appendChild(li);
+          a.addEventListener("click", (e) => { e.preventDefault(); selectCourse(c); });
+          li.appendChild(a); allCoursesMenu.appendChild(li);
         });
       }
       function renderUpcomingFour(list) {
         upcomingFour.innerHTML = "";
         const slice = list.slice(0, 4);
-        if (!slice.length) {
-          upcomingFour.innerHTML = '<div class="col-12"><div class="text-secondary small">沒有即將到來的課程</div></div>';
-          return;
-        }
+        if (!slice.length) { upcomingFour.innerHTML = '<div class="col-12"><div class="text-secondary small">沒有即將到來的課程</div></div>'; return; }
         slice.forEach((c) => {
-          const col = document.createElement("div");
-          col.className = "col-12 col-sm-6 col-lg-3";
-          const btn = document.createElement("button");
-          btn.className = "btn btn-outline-primary w-100 text-start";
+          const col = document.createElement("div"); col.className = "col-12 col-sm-6 col-lg-3";
+          const btn = document.createElement("button"); btn.className = "btn btn-outline-primary w-100 text-start";
           btn.innerHTML = `<div class="fw-semibold">${c.title}</div><div class="small text-secondary">${formatDate(c.date)}</div>`;
-          btn.addEventListener("click", () => selectCourse(c));
-          col.appendChild(btn);
-          upcomingFour.appendChild(col);
+          btn.addEventListener("click", () => selectCourse(c)); col.appendChild(btn); upcomingFour.appendChild(col);
         });
       }
       function renderSearchResults(list) {
-        if (!list || !list.length) {
-          clearSearchResults();
-          return;
-        }
-        searchResultsWrap.classList.remove("d-none");
-        searchResults.innerHTML = "";
+        if (!list || !list.length) { clearSearchResults(); return; }
+        searchResultsWrap.classList.remove("d-none"); searchResults.innerHTML = "";
         list.forEach((c) => {
-          const col = document.createElement("div");
-          col.className = "col-12 col-sm-6 col-lg-3";
-          const btn = document.createElement("button");
-          btn.className = "btn btn-outline-secondary w-100 text-start";
+          const col = document.createElement("div"); col.className = "col-12 col-sm-6 col-lg-3";
+          const btn = document.createElement("button"); btn.className = "btn btn-outline-secondary w-100 text-start";
           btn.innerHTML = `<div class="fw-semibold">${c.title}</div><div class="small text-secondary">${formatDate(c.date)}</div>`;
-          btn.addEventListener("click", () => selectCourse(c));
-          col.appendChild(btn);
-          searchResults.appendChild(col);
+          btn.addEventListener("click", () => selectCourse(c)); col.appendChild(btn); searchResults.appendChild(col);
         });
       }
-      function clearSearchResults() {
-        searchResults.innerHTML = "";
-        searchResultsWrap.classList.add("d-none");
-      }
+      function clearSearchResults() { searchResults.innerHTML = ""; searchResultsWrap.classList.add("d-none"); }
       function renderRoster(rows) {
         rosterTableBody.innerHTML = "";
-        if (!rows.length) {
-          const tr = document.createElement("tr");
-          tr.innerHTML = '<td colspan="6" class="text-secondary">尚無資料</td>';
-          rosterTableBody.appendChild(tr);
-          return;
-        }
+        if (!rows.length) { const tr = document.createElement("tr"); tr.innerHTML = '<td colspan="6" class="text-secondary">尚無資料</td>'; rosterTableBody.appendChild(tr); return; }
         rows.forEach((r, i) => {
           const tr = document.createElement("tr");
           tr.innerHTML = `
-          <td class="text-secondary">${i + 1}</td>
-          <td>${escapeHtml(r.姓名 ?? "")}</td>
-          <td>${escapeHtml(r.邀請人 ?? "")}</td>
-          <td>${escapeHtml(r.繳費狀態 ?? "")}</td>
-          <td>${escapeHtml(r.簽到 ?? "")}</td>
-          <td>${escapeHtml(r.註記 ?? "")}</td>
-        `;
+            <td class="text-secondary">${i + 1}</td>
+            <td>${escapeHtml(r.姓名 ?? "")}</td>
+            <td>${escapeHtml(r.邀請人 ?? "")}</td>
+            <td>${escapeHtml(r.繳費狀態 ?? "")}</td>
+            <td>${escapeHtml(r.簽到 ?? "")}</td>
+            <td>${escapeHtml(r.註記 ?? "")}</td>
+          `;
           rosterTableBody.appendChild(tr);
         });
       }
@@ -359,25 +314,59 @@
       function buildShareText(course, rows) {
         if (!course) return "";
         const dateStr = formatDate(course.date);
-        const rawTitle = course.title || "";
-        const courseName = rawTitle.replace(/^\d{8}/, "").trim() || rawTitle;
-
-        const header = [`課程日期：${dateStr}`, `課程名稱：${courseName}`, `💰：現金/已繳費     Ⓛ：Linepay`, `🔖：長客券            ✅：完成報到`, `--------------`, `人員清單：`];
-
+        const courseName = getCourseDisplayName(course);
+        const header = [
+          `課程日期：${dateStr}`,
+          `課程名稱：${courseName}`,
+          `💰：現金/已繳費     Ⓛ：Linepay`,
+          `🔖：長客券            ✅：完成報到`,
+          `--------------`,
+          `人員清單：`
+        ];
         const body = rows.map((r, i) => {
           const name = r.姓名 || "";
           const inviter = r.邀請人 || "";
           const payIcon = paymentIcon(r.繳費狀態);
           const checkIcon = checkinIcon(r.簽到);
           const inviterText = inviter ? `(${inviter})` : "";
-          // 圖示直接緊接在姓名(邀請人)後面，若都沒有圖示則不留多餘空白
           return `${i + 1}.${name}${inviterText}${payIcon}${checkIcon}`;
         });
-
         return [...header, ...body].join("\n");
       }
-      function fillShareText(course, rows) {
-        shareTextEl.value = buildShareText(course, rows);
+      function fillShareText(course, rows) { shareTextEl.value = buildShareText(course, rows); }
+
+      // ===== QRCode 相關 =====
+      function getQrCanvas() {
+        const box = document.getElementById('qrContainer');
+        let canvas = box.querySelector('canvas');
+        if (canvas) return canvas;
+        const img = box.querySelector('img');
+        if (!img) return null;
+        // 將 <img> 轉成 canvas 以便複製/下載
+        const cv = document.createElement('canvas');
+        const w = img.naturalWidth || 240, h = img.naturalHeight || 240;
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img, 0, 0, w, h);
+        return cv;
+      }
+      function updateQRCode(course) {
+        const box = document.getElementById('qrContainer');
+        const caption = document.getElementById('qrCaption');
+        if (!course) {
+          box.innerHTML = '<span class="text-secondary small">請先選擇課程</span>';
+          caption.textContent = '將產生：LINE 傳送「報名 {課程名稱}」';
+          copyQrBtn.disabled = true; downloadQrBtn.disabled = true;
+          return;
+        }
+        const cName = getCourseDisplayName(course);
+        const url = `https://line.me/R/oaMessage/%40667xkonq/?${encodeURIComponent('報名 ' + cName)}`;
+        box.innerHTML = '';
+        new QRCode(box, { text: url, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.M });
+        caption.textContent = `掃描後會開啟 LINE 並帶入「報名 ${cName}」訊息`;
+        copyQrBtn.disabled = false;
+        downloadQrBtn.disabled = false;
       }
 
       // ===== 主流程 =====
@@ -396,11 +385,13 @@
           statusText.textContent = `共 ${total} 筆（已繳 ${paid}）`;
           location.hash = encodeURIComponent(course.title);
           fillShareText(course, rows);
+          updateQRCode(course); // ← 產生 / 更新 QRCode
         } catch (err) {
           console.error(err);
           statusText.textContent = "讀取失敗";
           renderRoster([]);
           fillShareText(null, []);
+          updateQRCode(null);
           showToast(err.message);
         } finally {
           refreshBtn.disabled = false;
@@ -410,24 +401,13 @@
       function mapRowsToNeededColumns(values) {
         if (!values || !values.values || !values.values.length) return [];
         const [header, ...data] = values.values;
-        const norm = (s) =>
-          (s || "")
-            .toString()
-            .replace(/[\s\u3000]/g, "")
-            .toLowerCase();
-        const idx = {};
-        header.forEach((h, i) => (idx[norm(h)] = i));
+        const norm = (s) => (s || "").toString().replace(/[\s\u3000]/g, "").toLowerCase();
+        const idx = {}; header.forEach((h, i) => (idx[norm(h)] = i));
         const need = ["姓名", "邀請人", "繳費狀態", "簽到", "註記"];
         const miss = need.filter((n) => !(norm(n) in idx));
         if (miss.length) {
-          const alias = {
-            繳費狀態: ["繳費", "付款狀態", "是否繳費"],
-            簽到: ["是否簽到", "出席"],
-            邀請人: ["推薦人", "介紹人"],
-          };
-          miss.forEach((n) => {
-            (alias[n] || []).some((t) => norm(t) in idx && ((idx[norm(n)] = idx[norm(t)]), true));
-          });
+          const alias = { 繳費狀態: ["繳費", "付款狀態", "是否繳費"], 簽到: ["是否簽到", "出席"], 邀請人: ["推薦人", "介紹人"] };
+          miss.forEach((n) => { (alias[n] || []).some((t) => norm(t) in idx && ((idx[norm(n)] = idx[norm(t)]), true)); });
         }
         const rows = data.map((row) => ({
           姓名: row[idx[norm("姓名")]] || "",
@@ -441,17 +421,10 @@
 
       function applySearch() {
         const q = searchInput.value.trim();
-        if (!q) {
-          showToast("請輸入關鍵字");
-          return;
-        }
+        if (!q) { showToast("請輸入關鍵字"); return; }
         const isDateLike = /^\d{8}$/.test(q);
         const matched = courses.filter((c) => (isDateLike ? c.dateStr.includes(q) : c.title.toLowerCase().includes(q.toLowerCase())));
-        if (!matched.length) {
-          showToast("找不到符合的課程");
-          clearSearchResults();
-          return;
-        }
+        if (!matched.length) { showToast("找不到符合的課程"); clearSearchResults(); return; }
         renderSearchResults(matched);
         statusText.textContent = `找到 ${matched.length} 堂課程`;
       }
@@ -505,28 +478,41 @@
 
       // 事件
       searchBtn.addEventListener("click", applySearch);
-      searchInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") applySearch();
-      });
-      refreshBtn.addEventListener("click", () => {
-        if (selectedCourse) selectCourse(selectedCourse);
-      });
+      searchInput.addEventListener("keydown", (e) => { if (e.key === "Enter") applySearch(); });
+      refreshBtn.addEventListener("click", () => { if (selectedCourse) selectCourse(selectedCourse); });
       clearSearchBtn.addEventListener("click", clearSearchResults);
       copyBtn.addEventListener("click", async () => {
         try {
           if (navigator.clipboard && window.isSecureContext) {
             await navigator.clipboard.writeText(shareTextEl.value);
           } else {
-            // Fallback
-            shareTextEl.select();
-            document.execCommand("copy");
-            shareTextEl.blur();
+            shareTextEl.select(); document.execCommand("copy"); shareTextEl.blur();
           }
           showToast("已複製到剪貼簿");
         } catch (e) {
-          console.error(e);
-          showToast("複製失敗，請手動全選複製");
+          console.error(e); showToast("複製失敗，請手動全選複製");
         }
+      });
+      copyQrBtn.addEventListener("click", async () => {
+        try {
+          const canvas = getQrCanvas();
+          if (!canvas) { showToast('找不到 QR 圖片'); return; }
+          const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+          if (!blob || !navigator.clipboard || !window.ClipboardItem) throw new Error('Clipboard API 不支援');
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          showToast('QR 圖片已複製');
+        } catch (e) {
+          console.error(e); showToast('無法複製圖片（瀏覽器或環境不支援）');
+        }
+      });
+      downloadQrBtn.addEventListener("click", () => {
+        const canvas = getQrCanvas();
+        if (!canvas) { showToast('找不到 QR 圖片'); return; }
+        const a = document.createElement('a');
+        const cName = getCourseDisplayName(selectedCourse) || 'course';
+        a.download = `qr-${cName}.png`;
+        a.href = canvas.toDataURL('image/png');
+        a.click();
       });
 
       // 啟動
