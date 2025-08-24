@@ -96,7 +96,7 @@
       </div>
     </div>
 
-    <!-- 可複製文字 -->
+    <!-- 快速複製文字 -->
     <div class="card shadow-soft mb-3">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
@@ -161,7 +161,7 @@
   <script>
     // === 可調整參數 ===
     const SPREADSHEET_ID = "1dHKNksMN3jiB7EVCtgJLdCY3ggy2jokCMfNLCXmGNf4";
-    const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc";
+    const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc"; // ← 改成你的 Google API Key
 
     // === DOM ===
     const allCoursesMenu = document.getElementById("allCoursesMenu");
@@ -194,6 +194,10 @@
     let courses = []; // { title, dateStr, date, sheetId }
     let futureCourses = [];
     let selectedCourse = null;
+
+    // 目前的完整 / 短網址快取
+    let currentFullUrl = '';
+    let currentShortUrl = '';
 
     // ===== 工具 =====
     function showToast(msg) {
@@ -322,19 +326,26 @@
       courseCounters.classList.remove("d-none");
     }
 
-    // ===== 可複製文字（含圖示規則） =====
-    function buildShareText(course, rows) {
+    // ===== 可複製文字（僅在短網址成功時插入「報名網址」） =====
+    function buildShareText(course, rows, shortUrl) {
       if (!course) return "";
-      const dateStr = formatDate(course.date); // 若也要改成 YYYYMMDD，可改為 formatDateCompact(course.date)
+      const dateStr = formatDate(course.date);        // 保持 YYYY/MM/DD
       const courseName = getCourseDisplayName(course);
+
       const header = [
         `課程日期：${dateStr}`,
-        `課程名稱：${courseName}`,
+        `課程名稱：${courseName}`
+      ];
+      if (shortUrl && /^https?:\/\//i.test(shortUrl)) {
+        header.push(`報名網址：${shortUrl}`);
+      }
+      header.push(
         `💰：現金/已繳費     Ⓛ：Linepay`,
         `🔖：長客券            ✅：完成報到`,
         `--------------`,
         `人員清單：`
-      ];
+      );
+
       const body = rows.map((r, i) => {
         const name = r.姓名 || "";
         const inviter = r.邀請人 || "";
@@ -343,9 +354,10 @@
         const inviterText = inviter ? `(${inviter})` : "";
         return `${i + 1}.${name}${inviterText}${payIcon}${checkIcon}`;
       });
+
       return [...header, ...body].join("\n");
     }
-    function fillShareText(course, rows) { shareTextEl.value = buildShareText(course, rows); }
+    function fillShareText(course, rows, shortUrl) { shareTextEl.value = buildShareText(course, rows, shortUrl); }
 
     // ===== QR 與 URL =====
     function buildLineUrl(course) {
@@ -387,7 +399,7 @@
       copyQrBtn.disabled = false; downloadQrBtn.disabled = false;
     }
 
-    // === 短網址（改為 is.gd JSON API，取代舊邏輯） ===
+    // === 短網址（is.gd JSON API） ===
     async function shortenWithIsGd(longUrl) {
       const endpoint = `https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`;
       const res = await fetch(endpoint, { method: 'GET' });
@@ -398,20 +410,26 @@
     }
     async function updateUrlBoxes(course) {
       const full = buildLineUrl(course);
-      fullUrlInput.value = full || '';
-      copyFullUrlBtn.disabled = !full;
+      currentFullUrl = full || '';
+      fullUrlInput.value = currentFullUrl;
+      copyFullUrlBtn.disabled = !currentFullUrl;
 
       shortUrlInput.value = full ? '產生中…' : '';
       copyShortUrlBtn.disabled = true;
+      currentShortUrl = '';
 
-      if (!full) return;
+      if (!full) return '';
+
       try {
         const shorted = await shortenWithIsGd(full);
-        shortUrlInput.value = shorted;
-        copyShortUrlBtn.disabled = false;
-      } catch (e) {
+        currentShortUrl = shorted || '';
+        shortUrlInput.value = currentShortUrl || '（無法產生）';
+        copyShortUrlBtn.disabled = !currentShortUrl;
+        return currentShortUrl;            // 成功：回傳短網址
+      } catch {
         shortUrlInput.value = '（無法產生）';
         copyShortUrlBtn.disabled = true;
+        return '';                         // 失敗：回傳空字串
       }
     }
 
@@ -425,22 +443,30 @@
         const values = await fetchSheetValuesByTitle(course.title);
         const rows = mapRowsToNeededColumns(values);
         renderRoster(rows);
+
         const total = rows.length;
         const paid = rows.filter(r => isPaidValue(r["繳費狀態"])).length;
         updateCounters(total, paid);
         statusText.textContent = `共 ${total} 筆（已繳 ${paid}）`;
         location.hash = encodeURIComponent(course.title);
 
-        fillShareText(course, rows);
-        await updateUrlBoxes(course);
+        // 先更新網址（拿到短網址或空字串）
+        const shorted = await updateUrlBoxes(course);
+
+        // 更新 QRCode（不受短網址影響）
         const full = buildLineUrl(course);
         updateQRCodeWithUrl(full, course);
+
+        // 產生分享文字（僅在短網址成功時插入「報名網址」）
+        fillShareText(course, rows, shorted);
+
       } catch (err) {
         console.error(err);
         statusText.textContent = "讀取失敗";
         renderRoster([]);
-        fillShareText(null, []);
-        updateUrlBoxes(null);
+        fillShareText(null, [], "");
+        fullUrlInput.value = ""; shortUrlInput.value = "";
+        copyFullUrlBtn.disabled = true; copyShortUrlBtn.disabled = true;
         updateQRCodeWithUrl(null, null);
         showToast(err.message);
       } finally {
