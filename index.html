@@ -190,7 +190,7 @@
     // === 可調整參數 ===
     const SPREADSHEET_ID = "1dHKNksMN3jiB7EVCtgJLdCY3ggy2jokCMfNLCXmGNf4";
     const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc"; // ← 改成你的 Google API Key
-    const SUBMIT_URL = ""; // ← 若有後端 bulk 更新端點，填上 URL；空字串則只顯示 JSON 預覽
+    const SUBMIT_URL = "https://tzhengliin.synology.me/bossclass/verify/bulk_update"; // ← 送出修改的端點
 
     // === DOM ===
     const allCoursesMenu = document.getElementById("allCoursesMenu");
@@ -659,20 +659,23 @@
       // 預覽確認
       if(!confirm("以下修改即將送出：\n\n" + previews.join('\n') + "\n\n是否確定？")) return;
 
-      if (!SUBMIT_URL) {
-        // 沒有設定後端：只顯示 JSON，供你複製或日後串接
-        console.log("變更 payload：", {changes, course: selectedCourse?.title});
-        alert("目前未設定提交端點。\n以下為變更 JSON（已輸出到瀏覽器主控台）：\n\n" + JSON.stringify({changes, course: selectedCourse?.title}, null, 2));
-        return;
-      }
-
       try{
+        // 與原本驗證頁一致：用 FormData 送出 sheet_title 與 payload(JSON)
+        const fd = new FormData();
+        fd.append('sheet_title', selectedCourse?.title || '');
+        fd.append('payload', JSON.stringify({changes}));
+
         const res = await fetch(SUBMIT_URL, {
           method: "POST",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({changes, course: selectedCourse?.title})
+          body: fd,
+          credentials: "include" // 若你的 NAS 端需要帶 cookie，可保留；不需要可移除
         });
-        if(!res.ok) throw new Error(`提交失敗（${res.status}）`);
+
+        if(!res.ok){
+          const text = await res.text().catch(()=> "");
+          throw new Error(`提交失敗（${res.status}）：${text.slice(0,200)}`);
+        }
+
         showToast("已送出修改");
         // 送出後退出編輯模式並重讀資料
         exitEditMode();
