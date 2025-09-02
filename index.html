@@ -88,7 +88,7 @@
       <div class="d-flex align-items-center gap-2">
         <h5 class="m-0" id="courseTitle">請從上方選擇課程</h5>
         <div id="courseCounters" class="d-none">
-          <span class="badge text-bg-primary" id="countTotal">報名 0</span>
+          <span class="badge text-bg-primary" id="countTotal">總人數 0</span>
           <span class="badge text-bg-success ms-1" id="countPaid">已繳 0</span>
         </div>
       </div>
@@ -447,8 +447,8 @@
     }
 
     function updateCounters(total, paid){
-      countTotalEl.textContent = `報名 ${total}`;
-      countPaidEl.textContent = `已繳 ${paid}`;
+      countTotalEl.textContent = `總人數 ${total}`;
+      countPaidEl.textContent = `已報到 ${paid}`;
       courseCounters.classList.remove("d-none");
       editToggleBtn.disabled = !selectedCourse;
     }
@@ -600,9 +600,9 @@
         renderRoster(rows);
 
         const total = rows.length;
-        const paid = rows.filter(r => isPaidValue(r["繳費狀態"])).length;
+        const paid = rows.filter(r => isPaidValue(r["簽到"])).length;
         updateCounters(total, paid);
-        statusText.textContent = `共 ${total} 筆（已繳 ${paid}）`;
+        statusText.textContent = `人數共 ${total} 人（已報到 ${paid}）`;
         location.hash = encodeURIComponent(course.title);
 
         // URL / QR / 分享文字
@@ -965,3 +965,4 @@
   </script>
 </body>
 </html>
+
