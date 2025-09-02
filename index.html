@@ -15,17 +15,14 @@
       display: flex; align-items: center; justify-content: center;
       background: #fff; border: 1px solid rgba(0,0,0,.1); border-radius: .5rem;
     }
-    /* ===== 編輯模式的表格樣式（依內容寬度、手機可橫向捲動） ===== */
+    /* 表格：依內容寬度；手機可橫向捲動 */
     .table-wrap{ width:100%; }
     @media (max-width:768px){
       .table-wrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-      #rosterTable{ min-width: 600px; }
+      #rosterTable{ min-width: 680px; }
     }
-    #rosterTable{
-      table-layout:auto; /* 依內容 */
-      white-space:nowrap; /* 保持單行，避免被擠爆 */
-    }
-    /* Toggle 開關（輕量版） */
+    #rosterTable{ table-layout:auto; white-space:nowrap; }
+    /* Toggle */
     .switch{
       display:inline-block; position:relative; width:42px; height:24px;
       background:#e5e7eb; border-radius:999px; border:1px solid #dee2e6; vertical-align:middle;
@@ -36,7 +33,6 @@
     }
     .switch.on{ background:#c6f6d5; border-color:#8ce99a; }
     .switch.on::after{ transform:translateX(18px); }
-    /* 編輯工具列 */
     .edit-toolbar .btn + .btn { margin-left:.5rem; }
     .form-control-note{ padding: .375rem .5rem; font-size:.9rem; }
   </style>
@@ -70,7 +66,7 @@
       </div>
     </div>
 
-    <!-- 搜尋結果（顯示在最近四個課程前） -->
+    <!-- 搜尋結果 -->
     <div id="searchResultsWrap" class="mb-3 d-none">
       <div class="d-flex align-items-center justify-content-between">
         <h6 class="text-secondary mb-2">搜尋結果</h6>
@@ -85,7 +81,7 @@
       <div class="row g-2" id="upcomingFour"></div>
     </div>
 
-    <!-- 課程標題 + 計數 + 工具列 -->
+    <!-- 標題 + 計數 + 工具列 -->
     <div class="d-flex align-items-center justify-content-between mb-2">
       <div class="d-flex align-items-center gap-2">
         <h5 class="m-0" id="courseTitle">請從上方選擇課程</h5>
@@ -108,6 +104,7 @@
           <table class="table table-striped align-middle" id="rosterTable">
             <thead>
               <tr id="rosterHeadRow">
+                <!-- 會由 JS 依 showMeal 動態產生 -->
                 <th>序號</th>
                 <th>姓名</th>
                 <th>邀請人</th>
@@ -135,10 +132,9 @@
       </div>
     </div>
 
-    <!-- 報名連結（完整網址 / 短網址）＋ QRCode -->
+    <!-- 報名連結 + QRCode -->
     <div class="card shadow-soft">
       <div class="card-body">
-        <!-- 完整網址 -->
         <div class="mb-2">
           <label class="form-label small text-secondary">完整網址（LINE 開啟訊息）</label>
           <div class="input-group">
@@ -146,7 +142,6 @@
             <button id="copyFullUrlBtn" class="btn btn-outline-primary" type="button" disabled>複製</button>
           </div>
         </div>
-        <!-- 短網址（使用 is.gd JSON API） -->
         <div class="mb-3">
           <label class="form-label small text-secondary">短網址</label>
           <div class="input-group">
@@ -156,7 +151,6 @@
           <div class="form-text">若無法產生，請改用完整網址或稍後再試。</div>
         </div>
 
-        <!-- QR 與操作 -->
         <div class="d-flex align-items-start gap-3 flex-wrap">
           <div>
             <div id="qrContainer"><span class="text-secondary small">請先選擇課程</span></div>
@@ -187,10 +181,10 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <script>
-    // === 可調整參數 ===
+    // === 可調參數 ===
     const SPREADSHEET_ID = "1dHKNksMN3jiB7EVCtgJLdCY3ggy2jokCMfNLCXmGNf4";
-    const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc"; // ← 改成你的 Google API Key
-    const SUBMIT_URL = "https://tzhengliin.synology.me/bossclass/verify/bulk_update"; // ← 送出修改的端點
+    const API_KEY = "AIzaSyDy5xNMYYqI_aBSMNHbp5tNcPCl84NS2Nc";
+    const SUBMIT_URL = "https://tzhengliin.synology.me/bossclass/verify/bulk_update";
 
     // === DOM ===
     const allCoursesMenu = document.getElementById("allCoursesMenu");
@@ -199,6 +193,7 @@
     const statusText = document.getElementById("statusText");
     const upcomingFour = document.getElementById("upcomingFour");
     const rosterTable = document.getElementById("rosterTable");
+    const rosterHeadRow = document.getElementById("rosterHeadRow");
     const rosterTableBody = rosterTable.querySelector("tbody");
     const courseTitle = document.getElementById("courseTitle");
     const refreshBtn = document.getElementById("refreshBtn");
@@ -223,37 +218,24 @@
     const downloadQrBtn = document.getElementById("downloadQrBtn");
 
     // === 狀態 ===
-    let courses = []; // { title, dateStr, date, sheetId }
+    let courses = [];           // { title, dateStr, date, sheetId }
     let futureCourses = [];
     let selectedCourse = null;
-
-    // 編輯模式與原始值快取
     let editMode = false;
-    let originalRows = []; // 渲染時的原始值陣列（與畫面順序對應）
-    // 目前的完整 / 短網址快取
     let currentFullUrl = '';
     let currentShortUrl = '';
+    let showMeal = false;       // 是否顯示「餐食費」欄位（課程名稱含「餐廳」且表內找得到餐食欄）
 
-    // ===== 工具 =====
-    function showToast(msg) {
-      document.getElementById("toastBody").textContent = msg;
-      new bootstrap.Toast(document.getElementById("toast")).show();
-    }
-    function yyyymmddToDate(str) { return new Date(+str.slice(0,4), +str.slice(4,6)-1, +str.slice(6,8)); }
-    function formatDate(date) {
-      const y = date.getFullYear(), m = String(date.getMonth()+1).padStart(2,'0'), d = String(date.getDate()).padStart(2,'0');
-      return `${y}/${m}/${d}`;
-    }
-    function formatDateCompact(date) { return `${date.getFullYear()}${String(date.getMonth()+1).padStart(2,'0')}${String(date.getDate()).padStart(2,'0')}`; }
-    function isCourseSheet(title) { return /^\d{8}/.test(title); }
-    function extractDateStr(title) { return title.slice(0,8); }
-    function escapeHtml(str) { return String(str).replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s])); }
-    function getCourseDisplayName(course) {
-      const raw = course?.title || "";
-      const noDate = raw.replace(/^\d{8}/, "").trim();
-      return noDate || raw;
-    }
-    function explainFetchError(status, text) {
+    // 工具
+    function showToast(msg){ document.getElementById("toastBody").textContent = msg; new bootstrap.Toast(document.getElementById("toast")).show(); }
+    function yyyymmddToDate(str){ return new Date(+str.slice(0,4), +str.slice(4,6)-1, +str.slice(6,8)); }
+    function formatDate(d){ const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),da=String(d.getDate()).padStart(2,'0'); return `${y}/${m}/${da}`; }
+    function formatDateCompact(d){ return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; }
+    function isCourseSheet(title){ return /^\d{8}/.test(title); }
+    function extractDateStr(title){ return title.slice(0,8); }
+    function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function getCourseDisplayName(course){ const raw = course?.title || ""; const noDate = raw.replace(/^\d{8}/,"").trim(); return noDate || raw; }
+    function explainFetchError(status, text){
       if (status === 403) {
         if (/The caller does not have permission|Permission denied|insufficient permissions/i.test(text)) return "權限不足：請把試算表共用設定為「知道連結的任何人 → 檢視者」。";
         if (/Referer.*not.*allowed|API keys with referer restrictions cannot be used/i.test(text)) return "API Key 來源限制：請在 API Key 限制加入目前網域。";
@@ -261,124 +243,87 @@
       if (status === 400 && /API key not valid/i.test(text)) return "API Key 無效或未啟用 Sheets API。";
       return `讀取失敗（${status}）：${text.slice(0,180)}...`;
     }
-    function isPaidValue(val) {
+    function isPaidValue(val){
       const s = String(val||"").replace(/\s+/g,"").toLowerCase();
       if (!s) return false;
       if (["y","yes","true","1","paid"].includes(s)) return true;
       if (s.includes("已繳")||s.includes("已付款")||s.includes("已付")||s.includes("繳清")||s.includes("付款完成")||s==="是"||s==="有") return true;
       return false;
     }
-    // textarea 圖示轉換
-    function paymentIcon(val) {
+    function normalizeMeal(val){
       const s = String(val||"").trim().toLowerCase().replace(/\s+/g,"");
-      if (s.includes("長客")||s.includes("長客券")) return "🔖";
-      if (s.includes("linepay")||s.includes("line-pay")||s.includes("line支付")||s.includes("Ⓛ")) return "Ⓛ";
-      if (s.includes("現金")||s.includes("已繳")||s.includes("已付")||s.includes("已付款")||s.includes("繳清")||s.includes("付清")||s.includes("付款完成")||["paid","cash","y","yes","1","true"].includes(s)) return "💰";
+      if (!s) return "";
+      if (["y","yes","true","1","paid"].includes(s)) return "已繳";
+      if (s.includes("已繳")||s.includes("繳清")||s.includes("已付")||s.includes("付款完成")) return "已繳";
       return "";
     }
-    function checkinIcon(val) {
-      const s = String(val||"").trim().toLowerCase();
+    function paymentIcon(v){
+      const s = String(v||"").trim().toLowerCase().replace(/\s+/g,"");
+      if (s.includes("長客")||s.includes("長客券")) return "🔖";
+      if (s.includes("linepay")||s.includes("line-pay")||s.includes("line支付")||s.includes("Ⓛ")) return "Ⓛ";
+      if (s.includes("現金")||s.includes("已繳")||s.includes("已付")||s.includes("已付款")||s.includes("繳清")||s.includes("付款完成")||["paid","cash","y","yes","1","true"].includes(s)) return "💰";
+      return "";
+    }
+    function checkinIcon(v){
+      const s = String(v||"").trim().toLowerCase();
       if (s.includes("已報到")||s.includes("已簽到")||["是","y","yes","1","true","v","✓","√"].includes(s)) return "✅";
       return "";
     }
 
-    // ===== Google Sheets API =====
-    async function fetchSheetsList() {
+    // Sheets API
+    async function fetchSheetsList(){
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?fields=sheets(properties(sheetId%2Ctitle))&key=${API_KEY}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(explainFetchError(res.status, await res.text()));
-      return res.json();
+      const res = await fetch(url); if(!res.ok) throw new Error(explainFetchError(res.status, await res.text())); return res.json();
     }
-    async function fetchSheetValuesByTitle(title) {
+    async function fetchSheetValuesByTitle(title){
       const range = `${encodeURIComponent(title)}!A1:Z2000`;
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}?majorDimension=ROWS&key=${API_KEY}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(explainFetchError(res.status, await res.text()));
-      return res.json();
+      const res = await fetch(url); if(!res.ok) throw new Error(explainFetchError(res.status, await res.text())); return res.json();
     }
 
-    // ===== Renderers =====
-    function renderAllCoursesDropdown(list) {
-      allCoursesMenu.innerHTML = "";
-      if (!list.length) { allCoursesMenu.innerHTML = '<li class="px-3 py-2 text-secondary">沒有即將到來的課程</li>'; return; }
-      list.forEach(c => {
-        const li = document.createElement("li");
-        const a = document.createElement("a");
-        a.className = "dropdown-item d-flex justify-content-between align-items-center";
-        a.href = "#"; a.textContent = c.title;
-        const badge = document.createElement("span");
-        badge.className = "badge text-bg-light ms-2";
-        badge.textContent = formatDate(c.date);
-        a.appendChild(badge);
-        a.addEventListener("click", e => { e.preventDefault(); selectCourse(c); });
-        li.appendChild(a); allCoursesMenu.appendChild(li);
-      });
+    // 渲染表頭（依 showMeal）
+    function renderHeader(){
+      rosterHeadRow.innerHTML = showMeal
+        ? `<th>序號</th><th>姓名</th><th>邀請人</th><th>繳費狀態</th><th>餐食費</th><th>簽到</th><th>註記</th>`
+        : `<th>序號</th><th>姓名</th><th>邀請人</th><th>繳費狀態</th><th>簽到</th><th>註記</th>`;
     }
-    function renderUpcomingFour(list) {
-      upcomingFour.innerHTML = "";
-      const slice = list.slice(0,4);
-      if (!slice.length) { upcomingFour.innerHTML = '<div class="col-12"><div class="text-secondary small">沒有即將到來的課程</div></div>'; return; }
-      slice.forEach(c => {
-        const col = document.createElement("div"); col.className = "col-12 col-sm-6 col-lg-3";
-        const btn = document.createElement("button"); btn.className = "btn btn-outline-primary w-100 text-start";
-        btn.innerHTML = `<div class="fw-semibold">${c.title}</div><div class="small text-secondary">${formatDate(c.date)}</div>`;
-        btn.addEventListener("click", () => selectCourse(c));
-        col.appendChild(btn); upcomingFour.appendChild(col);
-      });
-    }
-    function renderSearchResults(list) {
-      if (!list || !list.length) { clearSearchResults(); return; }
-      searchResultsWrap.classList.remove("d-none");
-      searchResults.innerHTML = "";
-      list.forEach(c => {
-        const col = document.createElement("div"); col.className = "col-12 col-sm-6 col-lg-3";
-        const btn = document.createElement("button"); btn.className = "btn btn-outline-secondary w-100 text-start";
-        btn.innerHTML = `<div class="fw-semibold">${c.title}</div><div class="small text-secondary">${formatDate(c.date)}</div>`;
-        btn.addEventListener("click", () => selectCourse(c));
-        col.appendChild(btn); searchResults.appendChild(col);
-      });
-    }
-    function clearSearchResults() { searchResults.innerHTML = ""; searchResultsWrap.classList.add("d-none"); }
 
-    // 主要渲染：依據 editMode 切換顯示模式
-    function renderRoster(rows) {
+    // 渲染名單（依 editMode / showMeal）
+    function renderRoster(rows){
+      renderHeader();
       rosterTableBody.innerHTML = "";
-      if (!rows.length) { rosterTableBody.innerHTML = '<tr><td colspan="6" class="text-secondary">尚無資料</td></tr>'; return; }
+      if (!rows.length){ rosterTableBody.innerHTML = `<tr><td colspan="${showMeal?7:6}" class="text-secondary">尚無資料</td></tr>`; return; }
 
-      originalRows = rows.map((r, i) => ({
-        row_index: r.row_index,
-        姓名: r.姓名 || "",
-        邀請人: r.邀請人 || "",
-        繳費狀態: r.繳費狀態 || "",
-        簽到: r.簽到 || "",
-        註記: r.註記 || ""
-      }));
-
-      rows.forEach((r, i) => {
-        const tr = document.createElement("tr");
+      rows.forEach((r, i)=>{
+        const tr = document.createElement('tr');
         tr.dataset.row = String(r.row_index);
-        tr.dataset.name = r.姓名 || "";
+        tr.dataset.name = r.姓名 || '';
 
-        if (!editMode) {
-          tr.innerHTML = `
-            <td class="text-secondary">${i + 1}</td>
-            <td>${escapeHtml(r.姓名 ?? "")}</td>
-            <td>${escapeHtml(r.邀請人 ?? "")}</td>
-            <td>${escapeHtml(r.繳費狀態 ?? "")}</td>
-            <td>${escapeHtml(r.簽到 ?? "")}</td>
-            <td>${escapeHtml(r.註記 ?? "")}</td>
-          `;
+        if (!editMode){
+          const cells = [
+            `<td class="text-secondary">${i+1}</td>`,
+            `<td>${escapeHtml(r.姓名??"")}</td>`,
+            `<td>${escapeHtml(r.邀請人??"")}</td>`,
+            `<td>${escapeHtml(r.繳費狀態??"")}</td>`
+          ];
+          if (showMeal) cells.push(`<td>${escapeHtml(r.餐食費??"")}</td>`);
+          cells.push(
+            `<td>${escapeHtml(r.簽到??"")}</td>`,
+            `<td>${escapeHtml(r.註記??"")}</td>`
+          );
+          tr.innerHTML = cells.join('');
         } else {
           tr.classList.add('edit-row');
-          tr.dataset.paid = r.繳費狀態 || "";
-          tr.dataset.checkin = r.簽到 || "";
-          tr.dataset.note = r.註記 || "";
+          tr.dataset.paid = r.繳費狀態 || '';
+          tr.dataset.checkin = r.簽到 || '';
+          tr.dataset.note = r.註記 || '';
+          if (showMeal) tr.dataset.meal = r.餐食費 || '';
 
-          tr.innerHTML = `
-            <td class="text-secondary">${i + 1}</td>
-            <td class="fw-semibold">${escapeHtml(r.姓名 ?? "")}</td>
-            <td>${escapeHtml(r.邀請人 ?? "")}</td>
-            <td data-field="paid">
+          const cells = [
+            `<td class="text-secondary">${i+1}</td>`,
+            `<td class="fw-semibold">${escapeHtml(r.姓名??"")}</td>`,
+            `<td>${escapeHtml(r.邀請人??"")}</td>`,
+            `<td data-field="paid">
               <select class="form-select form-select-sm" style="width:auto;">
                 ${["","現金","Linepay","長客券","無須繳費"].map(opt=>{
                   const short = opt===""?"未繳":(opt==="Linepay"?"Line":(opt==="長客券"?"長客":(opt==="無須繳費"?"免繳":opt)));
@@ -386,87 +331,82 @@
                   return `<option value="${opt}" ${sel}>${short}</option>`;
                 }).join("")}
               </select>
-            </td>
-            <td data-field="checkin">
-              <div class="switch ${r.簽到==="已報到"?"on":""}" role="switch" tabindex="0" aria-checked="${r.簽到==="已報到"}"></div>
-            </td>
-            <td data-field="note">
-              <input class="form-control form-control-note" type="text" value="${escapeHtml(r.註記||"")}" placeholder="可輸入註記">
-            </td>
-          `;
+            </td>`
+          ];
+
+          if (showMeal){
+            cells.push(
+              `<td data-field="meal">
+                 <div class="switch ${r.餐食費==="已繳"?"on":""}" role="switch" tabindex="0" aria-checked="${r.餐食費==="已繳"}"></div>
+               </td>`
+            );
+          }
+
+          cells.push(
+            `<td data-field="checkin">
+               <div class="switch ${r.簽到==="已報到"?"on":""}" role="switch" tabindex="0" aria-checked="${r.簽到==="已報到"}"></div>
+             </td>`,
+            `<td data-field="note">
+               <input class="form-control form-control-note" type="text" value="${escapeHtml(r.註記||"")}" placeholder="可輸入註記">
+             </td>`
+          );
+
+          tr.innerHTML = cells.join('');
         }
+
         rosterTableBody.appendChild(tr);
       });
     }
 
-    function updateCounters(total, paid) {
+    function updateCounters(total, paid){
       countTotalEl.textContent = `報名 ${total}`;
       countPaidEl.textContent = `已繳 ${paid}`;
       courseCounters.classList.remove("d-none");
       editToggleBtn.disabled = !selectedCourse;
     }
 
-    // ===== 可複製文字（僅在短網址成功時插入「報名網址」） =====
-    function buildShareText(course, rows, shortUrl) {
+    // 分享文字
+    function buildShareText(course, rows, shortUrl){
       if (!course) return "";
-      const dateStr = formatDate(course.date);        // YYYY/MM/DD
+      const dateStr = formatDate(course.date);
       const courseName = getCourseDisplayName(course);
-
-      const header = [
-        `課程日期：${dateStr}`,
-        `課程名稱：${courseName}`
-      ];
+      const header = [`課程日期：${dateStr}`, `課程名稱：${courseName}`];
       if (shortUrl && /^https?:\/\//i.test(shortUrl)) header.push(`報名網址：${shortUrl}`);
-      header.push(
-        `💰：現金/已繳費     Ⓛ：Linepay`,
-        `🔖：長客券            ✅：完成報到`,
-        `--------------`,
-        `人員清單：`
-      );
-
-      const body = rows.map((r, i) => {
-        const name = r.姓名 || "";
-        const inviter = r.邀請人 || "";
-        const payIcon = paymentIcon(r.繳費狀態);
-        const checkIcon = checkinIcon(r.簽到);
+      header.push(`💰：現金/已繳費     Ⓛ：Linepay`, `🔖：長客券            ✅：完成報到`, `--------------`, `人員清單：`);
+      const body = rows.map((r,i)=>{
+        const name = r.姓名 || "", inviter = r.邀請人 || "";
+        const payIcon = paymentIcon(r.繳費狀態), checkIcon = checkinIcon(r.簽到);
         const inviterText = inviter ? `(${inviter})` : "";
-        return `${i + 1}.${name}${inviterText}${payIcon}${checkIcon}`;
+        return `${i+1}.${name}${inviterText}${payIcon}${checkIcon}`;
       });
-
       return [...header, ...body].join("\n");
     }
-    function fillShareText(course, rows, shortUrl) { shareTextEl.value = buildShareText(course, rows, shortUrl); }
+    function fillShareText(course, rows, shortUrl){ shareTextEl.value = buildShareText(course, rows, shortUrl); }
 
-    // ===== QR 與 URL =====
-    function buildLineUrl(course) {
+    // LINE URL 與 QR
+    function buildLineUrl(course){
       if (!course) return "";
-      const ymd = formatDateCompact(course.date); // YYYYMMDD
+      const ymd = formatDateCompact(course.date);
       const cName = getCourseDisplayName(course);
       const msg = `報名 ${ymd}${cName}`;
       return `https://line.me/R/oaMessage/%40667xkonq/?${encodeURIComponent(msg)}`;
     }
-    function getQrCanvas() {
+    function getQrCanvas(){
       const box = document.getElementById('qrContainer');
-      let canvas = box.querySelector('canvas');
-      if (canvas) return canvas;
-      const img = box.querySelector('img');
-      if (!img) return null;
-      const cv = document.createElement('canvas');
+      let cv = box.querySelector('canvas'); if (cv) return cv;
+      const img = box.querySelector('img'); if (!img) return null;
+      cv = document.createElement('canvas');
       const w = img.naturalWidth || 240, h = img.naturalHeight || 240;
       cv.width = w; cv.height = h;
-      const ctx = cv.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
-      ctx.drawImage(img, 0, 0, w, h);
-      return cv;
+      const ctx = cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h); return cv;
     }
-    function updateQRCodeWithUrl(url, course) {
+    function updateQRCodeWithUrl(url, course){
       const box = document.getElementById('qrContainer');
       const caption = document.getElementById('qrCaption');
-      if (!url || !course) {
+      if (!url || !course){
         box.innerHTML = '<span class="text-secondary small">請先選擇課程</span>';
         caption.textContent = '將產生：LINE 傳送「報名 YYYYMMDD{課程名稱}」';
-        copyQrBtn.disabled = true; downloadQrBtn.disabled = true;
-        return;
+        copyQrBtn.disabled = true; downloadQrBtn.disabled = true; return;
       }
       const ymd = formatDateCompact(course.date);
       const name = getCourseDisplayName(course);
@@ -476,49 +416,92 @@
       copyQrBtn.disabled = false; downloadQrBtn.disabled = false;
     }
 
-    // === 短網址（is.gd JSON API） ===
-    async function shortenWithIsGd(longUrl) {
+    // 短網址
+    async function shortenWithIsGd(longUrl){
       const endpoint = `https://is.gd/create.php?format=json&url=${encodeURIComponent(longUrl)}`;
-      const res = await fetch(endpoint, { method: 'GET' });
-      if (!res.ok) throw new Error('短網址服務回應異常');
-      const data = await res.json();
-      if (data.shorturl) return data.shorturl;
-      throw new Error(data.errormessage || '產生短網址失敗');
+      const res = await fetch(endpoint); if(!res.ok) throw new Error('短網址服務回應異常');
+      const data = await res.json(); if (data.shorturl) return data.shorturl; throw new Error(data.errormessage || '產生短網址失敗');
     }
-    async function updateUrlBoxes(course) {
+    async function updateUrlBoxes(course){
       const full = buildLineUrl(course);
       currentFullUrl = full || '';
       fullUrlInput.value = currentFullUrl;
       copyFullUrlBtn.disabled = !currentFullUrl;
-
       shortUrlInput.value = full ? '產生中…' : '';
       copyShortUrlBtn.disabled = true;
       currentShortUrl = '';
-
       if (!full) return '';
-
-      try {
+      try{
         const shorted = await shortenWithIsGd(full);
         currentShortUrl = shorted || '';
         shortUrlInput.value = currentShortUrl || '（無法產生）';
         copyShortUrlBtn.disabled = !currentShortUrl;
         return currentShortUrl;
-      } catch {
-        shortUrlInput.value = '（無法產生）';
-        copyShortUrlBtn.disabled = true;
-        return '';
-      }
+      }catch{ shortUrlInput.value = '（無法產生）'; copyShortUrlBtn.disabled = true; return ''; }
     }
 
-    // ===== 主流程 =====
-    async function selectCourse(course) {
+    // 解析 rows，並在需要時帶出餐食費
+    function mapRowsToNeededColumns(values, wantMeal){
+      if (!values || !values.values || !values.values.length) return { rows: [], hasMeal:false };
+      const [header, ...data] = values.values;
+      const norm = s => (s || "").toString().replace(/[\s\u3000]/g,"").toLowerCase();
+      const idx = {}; header.forEach((h,i)=>idx[norm(h)] = i);
+
+      const need = ["姓名","邀請人","繳費狀態","簽到","註記"];
+      const alias = { 繳費狀態:["繳費","付款狀態","是否繳費"], 簽到:["是否簽到","出席"], 邀請人:["推薦人","介紹人"], 註記:["備註"] };
+      const col = {};
+      need.forEach(n=>{
+        if (norm(n) in idx) col[n] = idx[norm(n)];
+        else (alias[n]||[]).some(t => (norm(t) in idx) && (col[n] = idx[norm(t)], true));
+      });
+
+      // 餐食費：僅在 wantMeal 時尋找欄位
+      let mealIdx = -1;
+      if (wantMeal){
+        const mealNames = ["餐食費","餐費","餐點費","餐點","便當","餐食"];
+        for (const name of mealNames){ if (norm(name) in idx){ mealIdx = idx[norm(name)]; break; } }
+      }
+
+      const baseRow = 2; // 假設資料自第 2 列
+      const rows = data.map((row,i)=>{
+        const r = {
+          row_index: baseRow + i,
+          姓名: col["姓名"]!=null ? (row[col["姓名"]]||"") : "",
+          邀請人: col["邀請人"]!=null ? (row[col["邀請人"]]||"") : "",
+          繳費狀態: col["繳費狀態"]!=null ? (row[col["繳費狀態"]]||"") : "",
+          簽到: col["簽到"]!=null ? (row[col["簽到"]]||"") : "",
+          註記: col["註記"]!=null ? (row[col["註記"]]||"") : ""
+        };
+        if (mealIdx >= 0){
+          const raw = row[mealIdx] || "";
+          r.餐食費 = normalizeMeal(raw); // 只放「已繳」或空白
+        }
+        return r;
+      }).filter(r => Object.values(r).some(v => String(v).trim() !== ""));
+
+      return { rows, hasMeal: mealIdx >= 0 };
+    }
+
+    // 選課主流程
+    async function selectCourse(course){
       selectedCourse = course;
+      const displayName = getCourseDisplayName(course);
       courseTitle.textContent = `${course.title}｜${formatDate(course.date)}`;
       refreshBtn.disabled = true;
-      rosterTableBody.innerHTML = '<tr><td colspan="6" class="text-secondary">載入中…</td></tr>';
-      try {
+      rosterTableBody.innerHTML = `<tr><td colspan="6" class="text-secondary">載入中…</td></tr>`;
+
+      try{
         const values = await fetchSheetValuesByTitle(course.title);
-        const rows = mapRowsToNeededColumns(values);
+
+        // 條件：課程名稱含「餐廳」才需要餐食費欄
+        const wantMeal = /餐廳/.test(course.title) || /餐廳/.test(displayName);
+
+        // 轉換 rows，並偵測是否存在餐食費欄
+        const { rows, hasMeal } = mapRowsToNeededColumns(values, wantMeal);
+
+        // 只有當「名稱含餐廳」且表內真的有餐食費欄位，才顯示餐食費
+        showMeal = !!(wantMeal && hasMeal);
+
         renderRoster(rows);
 
         const total = rows.length;
@@ -527,20 +510,16 @@
         statusText.textContent = `共 ${total} 筆（已繳 ${paid}）`;
         location.hash = encodeURIComponent(course.title);
 
-        // 先更新網址（拿到短網址或空字串）
+        // URL / QR / 分享文字
         const shorted = await updateUrlBoxes(course);
-
-        // 更新 QRCode（使用完整網址）
         const full = buildLineUrl(course);
         updateQRCodeWithUrl(full, course);
-
-        // 產生分享文字（僅在短網址成功時插入「報名網址」）
         fillShareText(course, rows, shorted);
 
         editToggleBtn.disabled = false;
         saveChangesBtn.classList.toggle('d-none', !editMode);
 
-      } catch (err) {
+      }catch(err){
         console.error(err);
         statusText.textContent = "讀取失敗";
         renderRoster([]);
@@ -551,318 +530,10 @@
         editToggleBtn.disabled = true;
         saveChangesBtn.classList.add('d-none');
         showToast(err.message);
-      } finally {
+      }finally{
         refreshBtn.disabled = false;
       }
     }
 
-    function mapRowsToNeededColumns(values) {
-      if (!values || !values.values || !values.values.length) return [];
-      const [header, ...data] = values.values;
-      const norm = s => (s || "").toString().replace(/[\s\u3000]/g,"").toLowerCase();
-      const idx = {}; header.forEach((h,i)=>idx[norm(h)] = i);
-      const need = ["姓名","邀請人","繳費狀態","簽到","註記"];
-      const miss = need.filter(n=>!(norm(n) in idx));
-      if (miss.length) {
-        const alias = { 繳費狀態:["繳費","付款狀態","是否繳費"], 簽到:["是否簽到","出席"], 邀請人:["推薦人","介紹人"], 註記:["備註"] };
-        miss.forEach(n => { (alias[n]||[]).some(t => (norm(t) in idx) && (idx[norm(n)] = idx[norm(t)], true)); });
-      }
-      const baseRow = 2; // 假設表頭在第 1 列，資料從第 2 列開始
-      const rows = data.map((row, i) => ({
-        row_index: baseRow + i,
-        姓名: row[idx[norm("姓名")]] || "",
-        邀請人: row[idx[norm("邀請人")]] || "",
-        繳費狀態: row[idx[norm("繳費狀態")]] || "",
-        簽到: row[idx[norm("簽到")]] || "",
-        註記: row[idx[norm("註記")]] || ""
-      }));
-      return rows.filter(r => Object.values(r).some(v => String(v).trim() !== ""));
-    }
-
-    function applySearch() {
-      const q = searchInput.value.trim();
-      if (!q) { showToast("請輸入關鍵字"); return; }
-      const isDateLike = /^\d{8}$/.test(q);
-      const matched = courses.filter(c => isDateLike ? c.dateStr.includes(q) : c.title.toLowerCase().includes(q.toLowerCase()));
-      if (!matched.length) { showToast("找不到符合的課程"); clearSearchResults(); return; }
-      renderSearchResults(matched);
-      statusText.textContent = `找到 ${matched.length} 堂課程`;
-    }
-
-    // ===== 編輯模式：切換、蒐集變更與送出 =====
-    function enterEditModeWithPassword() {
-      if (!selectedCourse) { showToast("請先選擇課程"); return; }
-      const pwd = prompt("請輸入密碼以進入修改模式：");
-      if (pwd !== "1993") { showToast("密碼錯誤"); return; }
-      editMode = true;
-      editToggleBtn.textContent = "完成編輯";
-      saveChangesBtn.classList.remove('d-none');
-      // 重新渲染為可編輯
-      selectCourse(selectedCourse);
-    }
-
-    function exitEditMode() {
-      editMode = false;
-      editToggleBtn.textContent = "修改資料";
-      saveChangesBtn.classList.add('d-none');
-      // 重新渲染為唯讀
-      selectCourse(selectedCourse);
-    }
-
-    function collectChanges() {
-      const rows = Array.from(rosterTableBody.querySelectorAll('tr.edit-row'));
-      const changes = [];
-      const previews = [];
-      const labelPaid = v => v ? v : '未繳費';
-      const labelChk = v => v ? '已報到' : '未報到';
-
-      rows.forEach(tr=>{
-        const row_index = parseInt(tr.dataset.row,10);
-        const name = tr.dataset.name || '';
-        const origPaid = tr.dataset.paid || '';
-        const origChk  = tr.dataset.checkin || '';
-        const origNote = tr.dataset.note || '';
-
-        let curPaid = '';
-        const paidSel = tr.querySelector('td[data-field="paid"] select');
-        if(paidSel){ curPaid = paidSel.value || ''; }
-
-        let curChk = '';
-        const chkSw = tr.querySelector('td[data-field="checkin"] .switch');
-        if(chkSw && chkSw.classList.contains('on')) curChk = '已報到';
-
-        let curNote = '';
-        const noteIn = tr.querySelector('td[data-field="note"] input');
-        if(noteIn){ curNote = noteIn.value || ''; }
-
-        const diff = {};
-        if(curPaid !== origPaid) diff["繳費狀態"] = curPaid;
-        if(curChk  !== origChk)  diff["簽到"] = curChk;
-        if(curNote !== origNote) diff["註記"] = curNote;
-
-        if(Object.keys(diff).length){
-          changes.push(Object.assign({row_index}, diff));
-          const parts = [];
-          if("繳費狀態" in diff) parts.push(`繳費：${labelPaid(origPaid)} → ${labelPaid(diff["繳費狀態"])}`);
-          if("簽到" in diff)      parts.push(`簽到：${labelChk(!!origChk)} → ${labelChk(!!diff["簽到"])}`);
-          if("註記" in diff)      parts.push(`註記：${origNote || "（空）"} → ${diff["註記"] || "（空）"}`);
-          previews.push(`【${name}】\n　• ` + parts.join('； '));
-        }
-      });
-      return {changes, previews};
-    }
-
-    async function submitChanges() {
-      if (!selectedCourse) { showToast('請先選擇課程'); return; }
-    
-      const rows = Array.from(document.querySelectorAll('#rosterTable tbody tr.edit-row'));
-      const changes = [];
-      const previews = [];
-    
-      const labelPaid  = v => v ? v : '未繳費';
-      const labelMeal  = v => v ? '已繳' : '未繳';
-      const labelChk   = v => v ? '已報到' : '未報到';
-      const getVal     = (sel, fn) => (sel ? fn(sel) : '');
-    
-      rows.forEach(tr => {
-        const row_index = parseInt(tr.dataset.row, 10);
-        const name      = tr.dataset.name || '';
-    
-        // 原始值（在 render 編輯模式時已寫入 data-*）
-        const origPaid  = tr.dataset.paid     || '';
-        const origChk   = tr.dataset.checkin  || '';
-        const origNote  = tr.dataset.note     || '';
-        const origMeal  = tr.dataset.meal     || ''; // 可能沒有
-    
-        // 目前值（依是否存在相對應控制元件取得）
-        const curPaid   = getVal(tr.querySelector('td[data-field="paid"] select'), el => el.value || '');
-        const curChk    = (() => {
-          const sw = tr.querySelector('td[data-field="checkin"] .switch');
-          return (sw && sw.classList.contains('on')) ? '已報到' : '';
-        })();
-        const curNote   = getVal(tr.querySelector('td[data-field="note"] input'), el => el.value || '');
-        let   curMeal   = null; // 用 null 表示畫面沒有餐食費控制元件
-        {
-          const sw = tr.querySelector('td[data-field="meal"] .switch');
-          if (sw) curMeal = sw.classList.contains('on') ? '已繳' : '';
-        }
-    
-        // 組裝變更（只包含有變更的欄位）
-        const change = { row_index, name };
-        if (curPaid !== origPaid) change.paid = curPaid;
-        if (curMeal !== null && curMeal !== origMeal) change.meal = curMeal;
-        if (curChk  !== origChk)  change.checkin = curChk;
-        if (curNote !== origNote) change.note = curNote;
-    
-        // 只推入真的有欄位變更（除了 row_index/name 之外）
-        if (Object.keys(change).length > 2) {
-          changes.push(change);
-    
-          // 預覽文字
-          const parts = [];
-          if ('meal' in change)    parts.push(`餐食費：${labelMeal(origMeal)} → ${labelMeal(curMeal)}`);
-          if ('paid' in change)    parts.push(`入場費：${labelPaid(origPaid)} → ${labelPaid(curPaid)}`);
-          if ('checkin' in change) parts.push(`報到：${labelChk(!!origChk)} → ${labelChk(!!curChk)}`);
-          if ('note' in change)    parts.push(`註記：${origNote || '（空）'} → ${curNote || '（空）'}`);
-          previews.push(`【${name}】\n　• ` + parts.join('； '));
-        }
-      });
-    
-      if (!changes.length) { showToast('沒有可送出的修改'); return; }
-      if (!confirm("以下修改即將送出：\n\n" + previews.join('\n') + "\n\n是否確定？")) return;
-    
-      try {
-        const fd = new FormData();
-        fd.append('sheet_title', selectedCourse?.title || '');
-        fd.append('date_key', selectedCourse ? formatDateCompact(selectedCourse.date) : '');
-        fd.append('course_name', selectedCourse ? getCourseDisplayName(selectedCourse) : '');
-        fd.append('code', ''); // 若頁面上有驗證 code，可改成實值
-        fd.append('payload', JSON.stringify({ changes }));
-    
-        const res = await fetch(SUBMIT_URL, {
-          method: 'POST',
-          body: fd,
-          credentials: 'include' // 後端若不需要 cookie，可移除
-        });
-    
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw new Error(`提交失敗（${res.status}）：${text.slice(0,200)}`);
-        }
-    
-        showToast('已送出修改');
-        // 送出後退出編輯模式並重讀資料
-        exitEditMode();
-      } catch (err) {
-        console.error(err);
-        showToast(err.message || '送出失敗');
-      }
-    }
-
-    // ===== 事件 =====
-    function bindEditRowInteractions() {
-      rosterTableBody.addEventListener('click', (e)=>{
-        const sw = e.target.closest('.switch');
-        if(sw){
-          sw.classList.toggle('on');
-          sw.setAttribute('aria-checked', sw.classList.contains('on') ? 'true' : 'false');
-        }
-      });
-      rosterTableBody.addEventListener('keydown', (e)=>{
-        if(e.key === ' ' || e.key === 'Enter'){
-          const sw = e.target.closest('.switch');
-          if(sw){
-            e.preventDefault();
-            sw.classList.toggle('on');
-            sw.setAttribute('aria-checked', sw.classList.contains('on') ? 'true' : 'false');
-          }
-        }
-      });
-    }
-
-    searchBtn.addEventListener("click", applySearch);
-    searchInput.addEventListener("keydown", e => { if (e.key === "Enter") applySearch(); });
-    refreshBtn.addEventListener("click", () => { if (selectedCourse) selectCourse(selectedCourse); });
-    clearSearchBtn.addEventListener("click", clearSearchResults);
-
-    editToggleBtn.addEventListener("click", ()=>{
-      if (!editMode) enterEditModeWithPassword();
-      else exitEditMode();
-    });
-    saveChangesBtn.addEventListener("click", submitChanges);
-
-    // 複製分享文字
-    copyBtn.addEventListener("click", async () => {
-      try {
-        if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(shareTextEl.value);
-        else { shareTextEl.select(); document.execCommand("copy"); shareTextEl.blur(); }
-        showToast("已複製到剪貼簿");
-      } catch { showToast("複製失敗，請手動全選複製"); }
-    });
-
-    // 複製網址
-    copyFullUrlBtn.addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(fullUrlInput.value); showToast("完整網址已複製"); }
-      catch { showToast("無法複製完整網址"); }
-    });
-    copyShortUrlBtn.addEventListener("click", async () => {
-      try { await navigator.clipboard.writeText(shortUrlInput.value); showToast("短網址已複製"); }
-      catch { showToast("無法複製短網址"); }
-    });
-
-    // QR 複製與下載
-    copyQrBtn.addEventListener("click", async () => {
-      try {
-        const canvas = getQrCanvas();
-        if (!canvas) { showToast('找不到 QR 圖片'); return; }
-        const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-        if (!blob || !navigator.clipboard || !window.ClipboardItem) throw new Error('Clipboard API 不支援');
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        showToast('QR 圖片已複製');
-      } catch {
-        showToast('無法複製圖片（瀏覽器或環境不支援）');
-      }
-    });
-    downloadQrBtn.addEventListener("click", () => {
-      const canvas = getQrCanvas();
-      if (!canvas) { showToast('找不到 QR 圖片'); return; }
-      const a = document.createElement('a');
-      const cName = getCourseDisplayName(selectedCourse) || 'course';
-      a.download = `qr-${cName}.png`;
-      a.href = canvas.toDataURL('image/png');
-      a.click();
-    });
-
-    // 啟動
-    async function init() {
-      if (!API_KEY || API_KEY.includes("YOUR_API_KEY")) {
-        statusText.textContent = "尚未設定 API Key（請編輯原始碼）";
-        showToast("請先在原始碼中設定 API_KEY");
-      }
-      if (location.protocol === "file:") {
-        showToast("偵測到以檔案方式開啟；若 API Key 有「網站限制」可能會被擋，建議用本機伺服器或部署到網域。");
-      }
-
-      statusText.textContent = "載入課程中…";
-      try {
-        const data = await fetchSheetsList();
-        const sheets = (data.sheets || []).map(s => s.properties);
-        courses = sheets
-          .filter(s => isCourseSheet(s.title))
-          .map(s => ({ title: s.title, dateStr: extractDateStr(s.title), date: yyyymmddToDate(extractDateStr(s.title)), sheetId: s.sheetId }))
-          .sort((a,b) => a.date - b.date);
-
-        const today = new Date();
-        futureCourses = courses.filter(c => c.date >= new Date(today.getFullYear(), today.getMonth(), today.getDate()));
-
-        renderAllCoursesDropdown(futureCourses);
-        renderUpcomingFour(futureCourses);
-        statusText.textContent = `共 ${courses.length} 個課程分頁（未來：${futureCourses.length}）`;
-
-        // 預設選擇（錨點 > 未來第一筆 > 最後一筆）
-        if (location.hash) {
-          const t = decodeURIComponent(location.hash.slice(1));
-          const hit = courses.find(c => c.title === t);
-          if (hit) await selectCourse(hit);
-          else if (futureCourses.length) await selectCourse(futureCourses[0]);
-          else if (courses.length) await selectCourse(courses[courses.length-1]);
-        } else if (futureCourses.length) {
-          await selectCourse(futureCourses[0]);
-        } else if (courses.length) {
-          await selectCourse(courses[courses.length-1]);
-        }
-
-        bindEditRowInteractions();
-      } catch (err) {
-        console.error(err);
-        statusText.textContent = "載入課程失敗";
-        showToast(err.message);
-      }
-    }
-    document.addEventListener("DOMContentLoaded", init);
-  </script>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html>
-
+    function renderAllCoursesDropdown(list){
+      allCoursesMen
