@@ -762,12 +762,34 @@
     function applySearch(){
       const q = searchInput.value.trim();
       if (!q){ showToast("請輸入關鍵字"); return; }
-      const isDateLike = /^\\d{8}$/.test(q);
-      const matched = courses.filter(c => isDateLike ? c.dateStr.includes(q) : c.title.toLowerCase().includes(q.toLowerCase()));
-      if (!matched.length){ showToast("找不到符合的課程"); clearSearchResults(); return; }
+    
+      // ✅ 新增：輸入 all（不分大小寫）→ 顯示所有課程
+      if (['all','全部'].includes(q.toLowerCase())){
+        if (!courses.length){
+          showToast("目前沒有任何課程");
+          clearSearchResults();
+          return;
+        }
+        renderSearchResults(courses);             // 直接把全部 courses 丟進去
+        statusText.textContent = `共 ${courses.length} 堂課程`;
+        return;
+      }
+    
+      // 既有：依日期或關鍵字比對
+      const isDateLike = /^\d{8}$/.test(q);
+      const matched = courses.filter(c =>
+        isDateLike ? c.dateStr.includes(q) : c.title.toLowerCase().includes(q.toLowerCase())
+      );
+    
+      if (!matched.length){
+        showToast("找不到符合的課程");
+        clearSearchResults();
+        return;
+      }
       renderSearchResults(matched);
       statusText.textContent = `找到 ${matched.length} 堂課程`;
     }
+
 
     async function init(){
       if (!API_KEY || API_KEY.includes("YOUR_API_KEY")){ statusText.textContent = "尚未設定 API Key（請編輯原始碼）"; showToast("請先在原始碼中設定 API_KEY"); }
@@ -812,3 +834,4 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
