@@ -89,7 +89,7 @@
         <h5 class="m-0" id="courseTitle">請從上方選擇課程</h5>
         <div id="courseCounters" class="d-none">
           <span class="badge text-bg-primary" id="countTotal">總人數 0</span>
-          <span class="badge text-bg-success ms-1" id="countPaid">已繳 0</span>
+          <span class="badge text-bg-success ms-1" id="countPaid">已報到 0</span>
         </div>
       </div>
       <div class="edit-toolbar">
@@ -106,6 +106,7 @@
           <table class="table table-striped align-middle" id="rosterTable">
             <thead>
               <tr id="rosterHeadRow">
+                <!-- 會由 JS 依 showMeal 動態產生 -->
                 <th>序號</th>
                 <th>姓名</th>
                 <th>邀請人</th>
@@ -215,13 +216,9 @@
           <div class="table-responsive">
             <table class="table table-bordered align-middle mb-0" id="confirmTable">
               <thead>
-                <tr id="confirmTableHead">
-                  <!-- 由 JS 動態產生 -->
-                </tr>
+                <tr id="confirmTableHead"></tr>
               </thead>
-              <tbody id="confirmTableBody">
-                <!-- 由 JS 動態產生 -->
-              </tbody>
+              <tbody id="confirmTableBody"></tbody>
             </table>
           </div>
         </div>
@@ -302,7 +299,7 @@
     let editMode = false;
     let currentFullUrl = '';
     let currentShortUrl = '';
-    let showMeal = false;       // 是否顯示「餐食費」欄位
+    let showMeal = false;       // 是否顯示「餐食費」欄位（僅在課名含「餐廳」且表內也有欄位）
 
     // 工具
     function showToast(msg){
@@ -349,6 +346,13 @@
       const s = String(v||"").trim().toLowerCase();
       if (s.includes("已報到")||s.includes("已簽到")||["是","y","yes","1","true","v","✓","√"].includes(s)) return "✅";
       return "";
+    }
+    function isCheckedIn(val){
+      const s = String(val||"").trim().toLowerCase();
+      if (!s) return false;
+      if (s.includes("已報到") || s.includes("已簽到")) return true;
+      if (["是","y","yes","1","true","v","✓","√"].includes(s)) return true;
+      return false;
     }
 
     // Sheets API
@@ -446,9 +450,9 @@
       });
     }
 
-    function updateCounters(total, paid){
+    function updateCounters(total, checkedIn){
       countTotalEl.textContent = `總人數 ${total}`;
-      countPaidEl.textContent = `已報到 ${paid}`;
+      countPaidEl.textContent = `已報到 ${checkedIn}`;
       courseCounters.classList.remove("d-none");
       editToggleBtn.disabled = !selectedCourse;
     }
@@ -600,9 +604,9 @@
         renderRoster(rows);
 
         const total = rows.length;
-        const paid = rows.filter(r => isPaidValue(r["簽到"])).length;
-        updateCounters(total, paid);
-        statusText.textContent = `人數共 ${total} 人（已報到 ${paid}）`;
+        const checkedIn = rows.filter(r => isCheckedIn(r["簽到"])).length;
+        updateCounters(total, checkedIn);
+        statusText.textContent = `共 ${total} 筆（已報到 ${checkedIn}）`;
         location.hash = encodeURIComponent(course.title);
 
         // URL / QR / 分享文字
@@ -734,7 +738,7 @@
 
       const rows = Array.from(document.querySelectorAll('#rosterTable tbody tr.edit-row'));
       const changes = [];
-      const previews = []; // [{name, paid:{old,new}, meal:{old,new}, checkin:{oldBool,newBool}, note:{old,new}}]
+      const previews = []; // [{name, paid:{old,new}, meal:{oldBool,newBool}, checkin:{oldBool,newBool}, note:{old,new}}]
 
       rows.forEach(tr=>{
         const row_index = parseInt(tr.dataset.row,10);
@@ -806,10 +810,10 @@
           <div><small>新：</small>${escapeHtml(labelPaid(p.paid?.new ?? ''))}</div>
         </td>`;
 
-        const tdMeal = needMealCol ? `<td class="oldnew">
-          <div><small>原：</small>${('meal' in p) ? labelMeal(p.meal.old) : '—'}</div>
-          <div><small>新：</small>${('meal' in p) ? labelMeal(p.meal.new) : '—'}</div>
-        </td>` : '';
+        const tdMeal = (showMeal && ('meal' in p)) ? `<td class="oldnew">
+          <div><small>原：</small>${labelMeal(p.meal.old)}</div>
+          <div><small>新：</small>${labelMeal(p.meal.new)}</div>
+        </td>` : (showMeal ? `<td class="oldnew">—</td>` : '');
 
         const tdChk = `<td class="oldnew">
           <div><small>原：</small>${('checkin' in p) ? labelChk(p.checkin.old) : '—'}</div>
@@ -965,4 +969,3 @@
   </script>
 </body>
 </html>
-
