@@ -301,6 +301,28 @@
     let currentShortUrl = '';
     let showMeal = false;       // 是否顯示「餐食費」欄位（僅在課名含「餐廳」且表內也有欄位）
 
+    // === 登入狀態（2 小時 TTL） ===
+    const LOGIN_KEY = 'bossclass_edit_login';
+    const LOGIN_TTL_MS = 2 * 60 * 60 * 1000; // 2hrs
+
+    function setLoginSession(){
+      try{
+        localStorage.setItem(LOGIN_KEY, JSON.stringify({ at: Date.now() }));
+      }catch(e){ /* ignore quota/blocked */ }
+    }
+    function hasValidLogin(){
+      try{
+        const raw = localStorage.getItem(LOGIN_KEY);
+        if (!raw) return false;
+        const obj = JSON.parse(raw);
+        return obj && typeof obj.at === 'number' && (Date.now() - obj.at) < LOGIN_TTL_MS;
+      }catch(e){ return false; }
+    }
+    function refreshLoginIfPresent(){
+      if (hasValidLogin()) setLoginSession(); // 滑動延長
+    }
+    //（如需手動登出可加：localStorage.removeItem(LOGIN_KEY)）
+
     // 工具
     function showToast(msg){
       document.getElementById("toastBody").textContent = msg;
@@ -676,9 +698,22 @@
     }
     function clearSearchResults(){ searchResults.innerHTML=""; searchResultsWrap.classList.add("d-none"); }
 
-    // ===== 編輯模式：用 Bootstrap Modal 驗密 =====
+    // ===== 編輯模式：支援已登入 2 小時內免密碼（Bootstrap Modal 驗密） =====
     function enterEditModeWithPassword(){
       if (!selectedCourse){ showToast("請先選擇課程"); return; }
+
+      // 已登入且在 2 小時內：直接進入編輯模式
+      if (hasValidLogin()){
+        setLoginSession(); // 滑動延長
+        editMode = true;
+        editToggleBtn.textContent = "完成編輯";
+        saveChangesBtn.classList.remove('d-none');
+        selectCourse(selectedCourse); // 重新渲染為可編輯
+        showToast('已使用登入狀態進入修改');
+        return;
+      }
+
+      // 否則開啟密碼視窗
       if (!editPwdModal) editPwdModal = new bootstrap.Modal(editPwdModalEl, { backdrop: 'static' });
       editPwdError.classList.add('d-none');
       editPwdInput.value = '';
@@ -694,18 +729,22 @@
         editPwdInput.select();
         return;
       }
+      // 設定登入狀態，保存 2 小時
+      setLoginSession();
+
       editPwdModal.hide();
       editMode = true;
       editToggleBtn.textContent = "完成編輯";
       saveChangesBtn.classList.remove('d-none');
       selectCourse(selectedCourse); // 重新渲染為可編輯
-      showToast('已進入修改模式');
+      showToast('已進入修改模式（登入狀態效期 2 小時）');
     }
     function exitEditMode(){
       editMode = false;
       editToggleBtn.textContent = "修改資料";
       saveChangesBtn.classList.add('d-none');
       selectCourse(selectedCourse); // 重新渲染為唯讀
+      // 不清除登入狀態，保留 2 小時
       showToast('已離開修改模式');
     }
 
@@ -780,7 +819,7 @@
 
       if(!changes.length){ showToast('沒有可送出的修改'); return; }
 
-      // 用表格顯示預覽，開啟確認視窗
+      // 用表格顯示預覽，開啟確認視窗（餐食費表頭：依 showMeal 固定顯示）
       buildConfirmTable(previews);
       confirmSummary.textContent = `即將送出 ${previews.length} 筆修改：`;
       if (!confirmModal) confirmModal = new bootstrap.Modal(confirmModalEl, { backdrop: 'static' });
@@ -788,10 +827,10 @@
       confirmModal.show();
     }
 
+    // 修正：只要本課程有餐食費欄位，就固定顯示表頭的「餐食費」欄
     function buildConfirmTable(previews){
-      // 只要本課程有餐食費欄位，就固定顯示表頭的「餐食費」欄
       const showMealCol = !!showMeal;
-    
+
       // 表頭
       const headCells = [
         '<th style="width:160px">姓名</th>',
@@ -801,18 +840,17 @@
         '<th>註記</th>',
       ].join('');
       confirmTableHead.innerHTML = headCells;
-    
+
       // 表身
       confirmTableBody.innerHTML = '';
       previews.forEach(p=>{
         const tdName = `<td class="fw-semibold">${escapeHtml(p.name || '')}</td>`;
-    
+
         const tdPaid = `<td class="oldnew">
           <div><small>原：</small>${escapeHtml(labelPaid(p.paid?.old ?? ''))}</div>
           <div><small>新：</small>${escapeHtml(labelPaid(p.paid?.new ?? ''))}</div>
         </td>`;
-    
-        // 就算這筆沒有改到餐食費，只要課程需要也要補一格「—」以對齊表頭
+
         let tdMeal = '';
         if (showMealCol){
           if ('meal' in p){
@@ -827,25 +865,24 @@
             </td>`;
           }
         }
-    
+
         const tdChk = `<td class="oldnew">
           <div><small>原：</small>${('checkin' in p) ? labelChk(p.checkin.old) : '—'}</div>
           <div><small>新：</small>${('checkin' in p) ? labelChk(p.checkin.new) : '—'}</div>
         </td>`;
-    
+
         const oldNote = p.note?.old ?? '（空）';
         const newNote = p.note?.new ?? '（空）';
         const tdNote = `<td class="oldnew">
           <div class="text-truncate" style="max-width:420px;"><small>原：</small>${escapeHtml(oldNote) || '（空）'}</div>
           <div class="text-truncate" style="max-width:420px;"><small>新：</small>${escapeHtml(newNote) || '（空）'}</div>
         </td>`;
-    
+
         const tr = document.createElement('tr');
         tr.innerHTML = tdName + tdPaid + tdMeal + tdChk + tdNote;
         confirmTableBody.appendChild(tr);
       });
     }
-
 
     async function doSubmitPendingChanges(){
       if (!pendingChanges || !pendingChanges.changes?.length) return;
@@ -938,6 +975,9 @@
     confirmSubmitBtn.addEventListener('click', doSubmitPendingChanges);
 
     async function init(){
+      // 若已有登入狀態，滑動延長有效時間
+      refreshLoginIfPresent();
+
       if (!API_KEY || API_KEY.includes("YOUR_API_KEY")){
         statusText.textContent = "尚未設定 API Key（請編輯原始碼）";
         showToast("請先在原始碼中設定 API_KEY");
@@ -983,4 +1023,3 @@
   </script>
 </body>
 </html>
-
