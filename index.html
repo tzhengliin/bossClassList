@@ -653,35 +653,89 @@
     }
 
     async function submitChanges() {
-      const {changes, previews} = collectChanges();
-      if(!changes.length){ showToast('沒有可送出的修改'); return; }
-
-      // 預覽確認
-      if(!confirm("以下修改即將送出：\n\n" + previews.join('\n') + "\n\n是否確定？")) return;
-
-      try{
-        // 與原本驗證頁一致：用 FormData 送出 sheet_title 與 payload(JSON)
+      if (!selectedCourse) { showToast('請先選擇課程'); return; }
+    
+      const rows = Array.from(document.querySelectorAll('#rosterTable tbody tr.edit-row'));
+      const changes = [];
+      const previews = [];
+    
+      const labelPaid  = v => v ? v : '未繳費';
+      const labelMeal  = v => v ? '已繳' : '未繳';
+      const labelChk   = v => v ? '已報到' : '未報到';
+      const getVal     = (sel, fn) => (sel ? fn(sel) : '');
+    
+      rows.forEach(tr => {
+        const row_index = parseInt(tr.dataset.row, 10);
+        const name      = tr.dataset.name || '';
+    
+        // 原始值（在 render 編輯模式時已寫入 data-*）
+        const origPaid  = tr.dataset.paid     || '';
+        const origChk   = tr.dataset.checkin  || '';
+        const origNote  = tr.dataset.note     || '';
+        const origMeal  = tr.dataset.meal     || ''; // 可能沒有
+    
+        // 目前值（依是否存在相對應控制元件取得）
+        const curPaid   = getVal(tr.querySelector('td[data-field="paid"] select'), el => el.value || '');
+        const curChk    = (() => {
+          const sw = tr.querySelector('td[data-field="checkin"] .switch');
+          return (sw && sw.classList.contains('on')) ? '已報到' : '';
+        })();
+        const curNote   = getVal(tr.querySelector('td[data-field="note"] input'), el => el.value || '');
+        let   curMeal   = null; // 用 null 表示畫面沒有餐食費控制元件
+        {
+          const sw = tr.querySelector('td[data-field="meal"] .switch');
+          if (sw) curMeal = sw.classList.contains('on') ? '已繳' : '';
+        }
+    
+        // 組裝變更（只包含有變更的欄位）
+        const change = { row_index, name };
+        if (curPaid !== origPaid) change.paid = curPaid;
+        if (curMeal !== null && curMeal !== origMeal) change.meal = curMeal;
+        if (curChk  !== origChk)  change.checkin = curChk;
+        if (curNote !== origNote) change.note = curNote;
+    
+        // 只推入真的有欄位變更（除了 row_index/name 之外）
+        if (Object.keys(change).length > 2) {
+          changes.push(change);
+    
+          // 預覽文字
+          const parts = [];
+          if ('meal' in change)    parts.push(`餐食費：${labelMeal(origMeal)} → ${labelMeal(curMeal)}`);
+          if ('paid' in change)    parts.push(`入場費：${labelPaid(origPaid)} → ${labelPaid(curPaid)}`);
+          if ('checkin' in change) parts.push(`報到：${labelChk(!!origChk)} → ${labelChk(!!curChk)}`);
+          if ('note' in change)    parts.push(`註記：${origNote || '（空）'} → ${curNote || '（空）'}`);
+          previews.push(`【${name}】\n　• ` + parts.join('； '));
+        }
+      });
+    
+      if (!changes.length) { showToast('沒有可送出的修改'); return; }
+      if (!confirm("以下修改即將送出：\n\n" + previews.join('\n') + "\n\n是否確定？")) return;
+    
+      try {
         const fd = new FormData();
         fd.append('sheet_title', selectedCourse?.title || '');
-        fd.append('payload', JSON.stringify({changes}));
-
+        fd.append('date_key', selectedCourse ? formatDateCompact(selectedCourse.date) : '');
+        fd.append('course_name', selectedCourse ? getCourseDisplayName(selectedCourse) : '');
+        fd.append('code', ''); // 若頁面上有驗證 code，可改成實值
+        fd.append('payload', JSON.stringify({ changes }));
+    
         const res = await fetch(SUBMIT_URL, {
-          method: "POST",
+          method: 'POST',
           body: fd,
-          credentials: "include" // 若你的 NAS 端需要帶 cookie，可保留；不需要可移除
+          credentials: 'include' // 後端若不需要 cookie，可移除
         });
-
-        if(!res.ok){
-          const text = await res.text().catch(()=> "");
+    
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
           throw new Error(`提交失敗（${res.status}）：${text.slice(0,200)}`);
         }
-
-        showToast("已送出修改");
+    
+        showToast('已送出修改');
         // 送出後退出編輯模式並重讀資料
         exitEditMode();
-      }catch(err){
+      } catch (err) {
         console.error(err);
-        showToast(err.message || "送出失敗");
+        showToast(err.message || '送出失敗');
       }
     }
 
@@ -811,3 +865,4 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
