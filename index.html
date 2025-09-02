@@ -789,49 +789,63 @@
     }
 
     function buildConfirmTable(previews){
-      // 動態表頭
-      const needMealCol = showMeal && previews.some(p => 'meal' in p);
+      // 只要本課程有餐食費欄位，就固定顯示表頭的「餐食費」欄
+      const showMealCol = !!showMeal;
+    
+      // 表頭
       const headCells = [
         '<th style="width:160px">姓名</th>',
         '<th style="width:180px">入場費</th>',
-        needMealCol ? '<th style="width:140px">餐食費</th>' : '',
+        showMealCol ? '<th style="width:140px">餐食費</th>' : '',
         '<th style="width:140px">報到</th>',
         '<th>註記</th>',
       ].join('');
       confirmTableHead.innerHTML = headCells;
-
+    
       // 表身
       confirmTableBody.innerHTML = '';
       previews.forEach(p=>{
         const tdName = `<td class="fw-semibold">${escapeHtml(p.name || '')}</td>`;
-
+    
         const tdPaid = `<td class="oldnew">
           <div><small>原：</small>${escapeHtml(labelPaid(p.paid?.old ?? ''))}</div>
           <div><small>新：</small>${escapeHtml(labelPaid(p.paid?.new ?? ''))}</div>
         </td>`;
-
-        const tdMeal = (showMeal && ('meal' in p)) ? `<td class="oldnew">
-          <div><small>原：</small>${labelMeal(p.meal.old)}</div>
-          <div><small>新：</small>${labelMeal(p.meal.new)}</div>
-        </td>` : (showMeal ? `<td class="oldnew">—</td>` : '');
-
+    
+        // 就算這筆沒有改到餐食費，只要課程需要也要補一格「—」以對齊表頭
+        let tdMeal = '';
+        if (showMealCol){
+          if ('meal' in p){
+            tdMeal = `<td class="oldnew">
+              <div><small>原：</small>${labelMeal(p.meal.old)}</div>
+              <div><small>新：</small>${labelMeal(p.meal.new)}</div>
+            </td>`;
+          } else {
+            tdMeal = `<td class="oldnew">
+              <div><small>原：</small>—</div>
+              <div><small>新：</small>—</div>
+            </td>`;
+          }
+        }
+    
         const tdChk = `<td class="oldnew">
           <div><small>原：</small>${('checkin' in p) ? labelChk(p.checkin.old) : '—'}</div>
           <div><small>新：</small>${('checkin' in p) ? labelChk(p.checkin.new) : '—'}</div>
         </td>`;
-
+    
         const oldNote = p.note?.old ?? '（空）';
         const newNote = p.note?.new ?? '（空）';
         const tdNote = `<td class="oldnew">
           <div class="text-truncate" style="max-width:420px;"><small>原：</small>${escapeHtml(oldNote) || '（空）'}</div>
           <div class="text-truncate" style="max-width:420px;"><small>新：</small>${escapeHtml(newNote) || '（空）'}</div>
         </td>`;
-
+    
         const tr = document.createElement('tr');
         tr.innerHTML = tdName + tdPaid + tdMeal + tdChk + tdNote;
         confirmTableBody.appendChild(tr);
       });
     }
+
 
     async function doSubmitPendingChanges(){
       if (!pendingChanges || !pendingChanges.changes?.length) return;
@@ -969,3 +983,4 @@
   </script>
 </body>
 </html>
+
